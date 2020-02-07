@@ -25,6 +25,8 @@ class Stream
 
     // Kernels
     // These must be blocking calls
+    virtual void read() = 0;
+    virtual void write() = 0;
     virtual void copy() = 0;
     virtual void mul() = 0;
     virtual void add() = 0;

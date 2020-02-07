@@ -40,6 +40,8 @@ class HIPStream : public Stream<T>
     HIPStream(const unsigned int, const int);
     ~HIPStream();
 
+    virtual void read() override;
+    virtual void write() override;
     virtual void copy() override;
     virtual void add() override;
     virtual void mul() override;

@@ -178,8 +178,15 @@ void run()
 
   stream->init_arrays(startA, startB, startC);
 
+  int num_tests;
+#if defined (HIP)
+  num_tests = 7;
+#else
+  num_tests = 5;
+#endif
+
   // List of times
-  std::vector<std::vector<double>> timings(5);
+  std::vector<std::vector<double>> timings(num_tests);
 
   // Declare timers
   std::chrono::high_resolution_clock::time_point t1, t2;
@@ -217,6 +224,17 @@ void run()
     t2 = std::chrono::high_resolution_clock::now();
     timings[4].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
 
+#if defined(HIP)
+    t1 = std::chrono::high_resolution_clock::now();
+    stream->read();
+    t2 = std::chrono::high_resolution_clock::now();
+    timings[5].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
+
+    t1 = std::chrono::high_resolution_clock::now();
+    stream->write();
+    t2 = std::chrono::high_resolution_clock::now();
+    timings[6].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
+#endif
   }
 
   // Check solutions
@@ -250,16 +268,27 @@ void run()
 
 
 
-  std::string labels[5] = {"Copy", "Mul", "Add", "Triad", "Dot"};
-  size_t sizes[5] = {
-    2 * sizeof(T) * ARRAY_SIZE,
-    2 * sizeof(T) * ARRAY_SIZE,
-    3 * sizeof(T) * ARRAY_SIZE,
-    3 * sizeof(T) * ARRAY_SIZE,
-    2 * sizeof(T) * ARRAY_SIZE
-  };
+  std::string labels[num_tests];
+  size_t sizes[num_tests];
 
-  for (int i = 0; i < 5; i++)
+  labels[0] = "Copy";
+  sizes[0] = 2 * sizeof(T) * ARRAY_SIZE;
+  labels[1] = "Mul";
+  sizes[1] = 2 * sizeof(T) * ARRAY_SIZE;
+  labels[2] = "Add";
+  sizes[2] = 3 * sizeof(T) * ARRAY_SIZE;
+  labels[3] = "Triad";
+  sizes[3] = 3 * sizeof(T) * ARRAY_SIZE;
+  labels[4] = "Dot";
+  sizes[4] = 2 * sizeof(T) * ARRAY_SIZE;
+#if defined(HIP)
+  labels[5] = "Read";
+  sizes[5] = sizeof(T) * ARRAY_SIZE;
+  labels[6] = "Write";
+  sizes[6] = sizeof(T) * ARRAY_SIZE;
+#endif
+
+  for (int i = 0; i < num_tests; i++)
   {
     // Get min/max; ignore the first result
     auto minmax = std::minmax_element(timings[i].begin()+1, timings[i].end());

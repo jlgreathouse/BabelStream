@@ -118,6 +118,49 @@ void HIPStream<T>::read_arrays(std::vector<T>& a, std::vector<T>& b, std::vector
 
 template <unsigned int elts_per_lane, typename T>
 __launch_bounds__(TBSIZE)
+__global__ void read_kernel(const T * __restrict a, T * __restrict c)
+{
+  const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
+  T local_temp = 0.;
+  for (auto i = 0u; i != elts_per_lane; ++i) {
+    local_temp += a[gidx + i];
+  }
+  if (local_temp == 126789.)
+      c[gidx] += local_temp;
+}
+
+template <class T>
+void HIPStream<T>::read()
+{
+  hipLaunchKernelGGL(read_kernel<elts_per_lane>, dim3(block_cnt), dim3(TBSIZE),
+                     0, nullptr, d_a, d_c);
+  check_error();
+  hipDeviceSynchronize();
+  check_error();
+}
+
+template <unsigned int elts_per_lane, typename T>
+__launch_bounds__(TBSIZE)
+__global__ void write_kernel(T * __restrict c)
+{
+  const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
+  for (auto i = 0u; i != elts_per_lane; ++i) {
+    c[gidx + i] = 0.;
+  }
+}
+
+template <class T>
+void HIPStream<T>::write()
+{
+  hipLaunchKernelGGL(write_kernel<elts_per_lane>, dim3(block_cnt), dim3(TBSIZE),
+                     0, nullptr, d_c);
+  check_error();
+  hipDeviceSynchronize();
+  check_error();
+}
+
+template <unsigned int elts_per_lane, typename T>
+__launch_bounds__(TBSIZE)
 __global__ void copy_kernel(const T * __restrict a, T * __restrict c)
 {
   const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
