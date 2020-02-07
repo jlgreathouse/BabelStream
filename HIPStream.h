@@ -18,9 +18,12 @@
 template <class T>
 class HIPStream : public Stream<T>
 {
+  static constexpr auto sizeof_dwordx4{sizeof(unsigned int) * 4};
+  static constexpr auto elts_per_lane{sizeof_dwordx4 / sizeof(T)};
   protected:
     // Size of arrays
     unsigned int array_size;
+    unsigned int block_cnt;
 
     // Host array for partial sums for dot kernel
     T *sums;
