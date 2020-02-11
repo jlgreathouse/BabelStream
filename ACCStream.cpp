@@ -62,7 +62,37 @@ void ACCStream<T>::read_arrays(std::vector<T>& h_a, std::vector<T>& h_b, std::ve
 }
 
 template <class T>
-void ACCStream<T>::copy()
+float ACCStream<T>::read()
+{
+  unsigned int array_size = this->array_size;
+  T * restrict a = this->a;
+  T * restrict c = this->c;
+  T local_temp = 0.;
+  #pragma acc parallel loop present(a[0:array_size]) wait
+  for (int i = 0; i < array_size; i++)
+  {
+    local_temp += a[i];
+    if (local_temp == 126789.)
+      c[gidx] += local_temp;
+  }
+  return 0.;
+}
+
+template <class T>
+float ACCStream<T>::write()
+{
+  unsigned int array_size = this->array_size;
+  T * restrict c = this->c;
+  #pragma acc parallel loop present(c[0:array_size]) wait
+  for (int i = 0; i < array_size; i++)
+  {
+    c[i] = 0.;
+  }
+  return 0.;
+}
+
+template <class T>
+float ACCStream<T>::copy()
 {
   unsigned int array_size = this->array_size;
   T * restrict a = this->a;
@@ -72,10 +102,11 @@ void ACCStream<T>::copy()
   {
     c[i] = a[i];
   }
+  return 0.;
 }
 
 template <class T>
-void ACCStream<T>::mul()
+float ACCStream<T>::mul()
 {
   const T scalar = startScalar;
 
@@ -87,10 +118,11 @@ void ACCStream<T>::mul()
   {
     b[i] = scalar * c[i];
   }
+  return 0.;
 }
 
 template <class T>
-void ACCStream<T>::add()
+float ACCStream<T>::add()
 {
   unsigned int array_size = this->array_size;
   T * restrict a = this->a;
@@ -101,10 +133,11 @@ void ACCStream<T>::add()
   {
     c[i] = a[i] + b[i];
   }
+  return 0.;
 }
 
 template <class T>
-void ACCStream<T>::triad()
+float ACCStream<T>::triad()
 {
   const T scalar = startScalar;
 
@@ -117,6 +150,7 @@ void ACCStream<T>::triad()
   {
     a[i] = b[i] + scalar * c[i];
   }
+  return 0.;
 }
 
 template <class T>

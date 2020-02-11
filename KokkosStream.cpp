@@ -62,10 +62,38 @@ void KokkosStream<T>::read_arrays(
 }
 
 template <class T>
-void KokkosStream<T>::copy()
+float KokkosStream<T>::read()
 {
   Kokkos::View<T*> a(*d_a);
-  Kokkos::View<T*> b(*d_b);
+  Kokkos::View<T*> c(*d_c);
+
+  Kokkos::parallel_for(array_size, KOKKOS_LAMBDA (const long index)
+  {
+    T local_temp = a[index];
+    if (local_temp == 126789.))
+      c[index] = local_temp
+  });
+  Kokkos::fence();
+  return 0.;
+}
+
+template <class T>
+float KokkosStream<T>::write()
+{
+  Kokkos::View<T*> c(*d_c);
+
+  Kokkos::parallel_for(array_size, KOKKOS_LAMBDA (const long index)
+  {
+    c[index] = 0.;
+  });
+  Kokkos::fence();
+  return 0.;
+}
+
+template <class T>
+float KokkosStream<T>::copy()
+{
+  Kokkos::View<T*> a(*d_a);
   Kokkos::View<T*> c(*d_c);
 
   Kokkos::parallel_for(array_size, KOKKOS_LAMBDA (const long index)
@@ -73,12 +101,12 @@ void KokkosStream<T>::copy()
     c[index] = a[index];
   });
   Kokkos::fence();
+  return 0.;
 }
 
 template <class T>
-void KokkosStream<T>::mul()
+float KokkosStream<T>::mul()
 {
-  Kokkos::View<T*> a(*d_a);
   Kokkos::View<T*> b(*d_b);
   Kokkos::View<T*> c(*d_c);
 
@@ -88,10 +116,11 @@ void KokkosStream<T>::mul()
     b[index] = scalar*c[index];
   });
   Kokkos::fence();
+  return 0.;
 }
 
 template <class T>
-void KokkosStream<T>::add()
+float KokkosStream<T>::add()
 {
   Kokkos::View<T*> a(*d_a);
   Kokkos::View<T*> b(*d_b);
@@ -102,10 +131,11 @@ void KokkosStream<T>::add()
     c[index] = a[index] + b[index];
   });
   Kokkos::fence();
+  return 0.;
 }
 
 template <class T>
-void KokkosStream<T>::triad()
+float KokkosStream<T>::triad()
 {
   Kokkos::View<T*> a(*d_a);
   Kokkos::View<T*> b(*d_b);
@@ -117,6 +147,7 @@ void KokkosStream<T>::triad()
     a[index] = b[index] + scalar*c[index];
   });
   Kokkos::fence();
+  return 0.;
 }
 
 template <class T>

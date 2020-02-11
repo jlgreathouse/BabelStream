@@ -123,9 +123,53 @@ void HCStream<T>::read_arrays(std::vector<T>& a, std::vector<T>& b, std::vector<
   hc::copy(d_c,c.begin());
 }
 
+template <class T>
+float HCStream<T>::read()
+{
+
+  hc::array_view<T,1> view_a = this->d_a;
+  hc::array_view<T,1> view_c = this->d_c;
+
+  try{
+    hc::completion_future future_kernel = hc::parallel_for_each(hc::extent<1>(array_size)
+                                , [=](hc::index<1> index) [[hc]] {
+                                  T local_temp = view_a[index];
+                                  if (local_temp == 126789.)
+                                    view_c[index] = local_temp;
+                                });
+    future_kernel.wait();
+  }
+  catch(std::exception& e){
+    std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::read " << e.what() << std::endl;
+    throw;
+  }
+
+  return 0.;
+}
 
 template <class T>
-void HCStream<T>::copy()
+float HCStream<T>::write()
+{
+
+  hc::array_view<T,1> view_c = this->d_c;
+
+  try{
+    hc::completion_future future_kernel = hc::parallel_for_each(hc::extent<1>(array_size)
+                                , [=](hc::index<1> index) [[hc]] {
+                                  view_c[index] = 0.;
+                                });
+    future_kernel.wait();
+  }
+  catch(std::exception& e){
+    std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::write " << e.what() << std::endl;
+    throw;
+  }
+
+  return 0.;
+}
+
+template <class T>
+float HCStream<T>::copy()
 {
 
   hc::array_view<T,1> view_a = this->d_a;
@@ -142,10 +186,12 @@ void HCStream<T>::copy()
     std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::copy " << e.what() << std::endl;
     throw;
   }
+
+  return 0.;
 }
 
 template <class T>
-void HCStream<T>::mul()
+float HCStream<T>::mul()
 {
 
   const T scalar = startScalar;
@@ -163,10 +209,12 @@ void HCStream<T>::mul()
     std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::mul " << e.what() << std::endl;
     throw;
   }
+
+  return 0.;
 }
 
 template <class T>
-void HCStream<T>::add()
+float HCStream<T>::add()
 {
 
 
@@ -185,10 +233,12 @@ void HCStream<T>::add()
     std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::add " << e.what() << std::endl;
     throw;
   }
+
+  return 0.;
 }
 
 template <class T>
-void HCStream<T>::triad()
+float HCStream<T>::triad()
 {
 
   const T scalar = startScalar;
@@ -207,6 +257,8 @@ void HCStream<T>::triad()
     std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::triad " << e.what() << std::endl;
     throw;
   }
+
+  return 0.;
 }
 
 template <class T>

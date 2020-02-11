@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include "Stream.h"
+#include "hip/hip_ext.h"
 
 #define IMPLEMENTATION_STRING "HIP"
 
@@ -22,8 +23,11 @@ class HIPStream : public Stream<T>
   static constexpr auto elts_per_lane{sizeof_dwordx4 / sizeof(T)};
   protected:
     // Size of arrays
-    unsigned int array_size;
-    unsigned int block_cnt;
+    const unsigned int array_size;
+    const unsigned int block_cnt;
+    const bool evt_timing;
+    hipEvent_t start_ev;
+    hipEvent_t stop_ev;
 
     // Host array for partial sums for dot kernel
     T *sums;
@@ -32,23 +36,19 @@ class HIPStream : public Stream<T>
     T *d_a;
     T *d_b;
     T *d_c;
-    T *d_sum;
-
 
   public:
-
-    HIPStream(const unsigned int, const int);
+    HIPStream(const unsigned int, const bool, const int);
     ~HIPStream();
 
-    virtual void read() override;
-    virtual void write() override;
-    virtual void copy() override;
-    virtual void add() override;
-    virtual void mul() override;
-    virtual void triad() override;
+    virtual float read() override;
+    virtual float write() override;
+    virtual float copy() override;
+    virtual float add() override;
+    virtual float mul() override;
+    virtual float triad() override;
     virtual T dot() override;
 
     virtual void init_arrays(T initA, T initB, T initC) override;
     virtual void read_arrays(std::vector<T>& a, std::vector<T>& b, std::vector<T>& c) override;
-
 };

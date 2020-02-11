@@ -96,7 +96,54 @@ void OMPStream<T>::read_arrays(std::vector<T>& h_a, std::vector<T>& h_b, std::ve
 }
 
 template <class T>
-void OMPStream<T>::copy()
+float OMPStream<T>::read()
+{
+#ifdef OMP_TARGET_GPU
+  unsigned int array_size = this->array_size;
+  T *a = this->a;
+  T *c = this->c;
+  #pragma omp target teams distribute parallel for simd
+#else
+  #pragma omp parallel for
+#endif
+  for (int i = 0; i < array_size; i++)
+  {
+    T local_temp = a[i];
+    if (local_temp == 126789.)
+      c[i] = local_temp;
+  }
+  #if defined(OMP_TARGET_GPU) && defined(_CRAYC)
+  // If using the Cray compiler, the kernels do not block, so this update forces
+  // a small copy to ensure blocking so that timing is correct
+  #pragma omp target update from(a[0:0])
+  #endif
+  return 0.;
+}
+
+template <class T>
+float OMPStream<T>::write()
+{
+#ifdef OMP_TARGET_GPU
+  unsigned int array_size = this->array_size;
+  T *c = this->c;
+  #pragma omp target teams distribute parallel for simd
+#else
+  #pragma omp parallel for
+#endif
+  for (int i = 0; i < array_size; i++)
+  {
+    c[i] = 0.;
+  }
+  #if defined(OMP_TARGET_GPU) && defined(_CRAYC)
+  // If using the Cray compiler, the kernels do not block, so this update forces
+  // a small copy to ensure blocking so that timing is correct
+  #pragma omp target update from(a[0:0])
+  #endif
+  return 0.;
+}
+
+template <class T>
+float OMPStream<T>::copy()
 {
 #ifdef OMP_TARGET_GPU
   unsigned int array_size = this->array_size;
@@ -115,10 +162,11 @@ void OMPStream<T>::copy()
   // a small copy to ensure blocking so that timing is correct
   #pragma omp target update from(a[0:0])
   #endif
+  return 0.;
 }
 
 template <class T>
-void OMPStream<T>::mul()
+float OMPStream<T>::mul()
 {
   const T scalar = startScalar;
 
@@ -139,10 +187,11 @@ void OMPStream<T>::mul()
   // a small copy to ensure blocking so that timing is correct
   #pragma omp target update from(c[0:0])
   #endif
+  return 0.;
 }
 
 template <class T>
-void OMPStream<T>::add()
+float OMPStream<T>::add()
 {
 #ifdef OMP_TARGET_GPU
   unsigned int array_size = this->array_size;
@@ -162,10 +211,11 @@ void OMPStream<T>::add()
   // a small copy to ensure blocking so that timing is correct
   #pragma omp target update from(a[0:0])
   #endif
+  return 0.;
 }
 
 template <class T>
-void OMPStream<T>::triad()
+float OMPStream<T>::triad()
 {
   const T scalar = startScalar;
 
@@ -187,6 +237,7 @@ void OMPStream<T>::triad()
   // a small copy to ensure blocking so that timing is correct
   #pragma omp target update from(a[0:0])
   #endif
+  return 0.;
 }
 
 template <class T>

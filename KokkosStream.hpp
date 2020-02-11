@@ -37,10 +37,12 @@ class KokkosStream : public Stream<T>
     KokkosStream(const unsigned int, const int);
     ~KokkosStream();
 
-    virtual void copy() override;
-    virtual void add() override;
-    virtual void mul() override;
-    virtual void triad() override;
+    virtual float read() override;
+    virtual float write() override;
+    virtual float copy() override;
+    virtual float add() override;
+    virtual float mul() override;
+    virtual float triad() override;
     virtual T dot() override;
 
     virtual void init_arrays(T initA, T initB, T initC) override;

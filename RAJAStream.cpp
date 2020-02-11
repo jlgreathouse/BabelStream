@@ -71,7 +71,21 @@ void RAJAStream<T>::read_arrays(
 }
 
 template <class T>
-void RAJAStream<T>::copy()
+float RAJAStream<T>::read()
+{
+  T* RAJA_RESTRICT a = d_a;
+  T* RAJA_RESTRICT c = d_c;
+  forall<policy>(index_set, [=] RAJA_DEVICE (RAJA::Index_type index)
+  {
+    T local_temp = a[index];
+    if (local_temp == 126789.)
+      c[index] = local_temp;
+  });
+  return 0.;
+}
+
+template <class T>
+float RAJAStream<T>::copy()
 {
   T* RAJA_RESTRICT a = d_a;
   T* RAJA_RESTRICT c = d_c;
@@ -79,10 +93,23 @@ void RAJAStream<T>::copy()
   {
     c[index] = a[index];
   });
+  return 0.;
 }
 
 template <class T>
-void RAJAStream<T>::mul()
+float RAJAStream<T>::copy()
+{
+  T* RAJA_RESTRICT a = d_a;
+  T* RAJA_RESTRICT c = d_c;
+  forall<policy>(index_set, [=] RAJA_DEVICE (RAJA::Index_type index)
+  {
+    c[index] = a[index];
+  });
+  return 0.;
+}
+
+template <class T>
+float RAJAStream<T>::mul()
 {
   T* RAJA_RESTRICT b = d_b;
   T* RAJA_RESTRICT c = d_c;
@@ -91,10 +118,11 @@ void RAJAStream<T>::mul()
   {
     b[index] = scalar*c[index];
   });
+  return 0.;
 }
 
 template <class T>
-void RAJAStream<T>::add()
+float RAJAStream<T>::add()
 {
   T* RAJA_RESTRICT a = d_a;
   T* RAJA_RESTRICT b = d_b;
@@ -103,10 +131,11 @@ void RAJAStream<T>::add()
   {
     c[index] = a[index] + b[index];
   });
+  return 0.;
 }
 
 template <class T>
-void RAJAStream<T>::triad()
+float RAJAStream<T>::triad()
 {
   T* RAJA_RESTRICT a = d_a;
   T* RAJA_RESTRICT b = d_b;
@@ -116,6 +145,7 @@ void RAJAStream<T>::triad()
   {
     a[index] = b[index] + scalar*c[index];
   });
+  return 0.;
 }
 
 template <class T>

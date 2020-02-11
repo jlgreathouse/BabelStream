@@ -44,6 +44,7 @@ unsigned int ARRAY_SIZE = 33554432;
 unsigned int num_times = 100;
 unsigned int deviceIndex = 0;
 bool use_float = false;
+bool event_timing = false;
 bool triad_only = false;
 bool output_as_csv = false;
 bool mibibytes = false;
@@ -89,6 +90,21 @@ int main(int argc, char *argv[])
       run<double>();
   }
 
+}
+
+static double calculate_time_s(const bool evt_timing,
+        const std::chrono::high_resolution_clock::time_point t1,
+        const std::chrono::high_resolution_clock::time_point t2,
+        const float kernel_time)
+{
+#if defined(HIP) || defined(OCL) || defined(CUDA)
+  if (!event_timing)
+    return std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
+  else
+    return kernel_time/1000.;
+#else
+  return std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
+#endif
 }
 
 template <typename T>
@@ -140,11 +156,11 @@ void run()
 
 #if defined(CUDA)
   // Use the CUDA implementation
-  stream = new CUDAStream<T>(ARRAY_SIZE, deviceIndex);
+  stream = new CUDAStream<T>(ARRAY_SIZE, event_timing, deviceIndex);
 
 #elif defined(HIP)
   // Use the HIP implementation
-  stream = new HIPStream<T>(ARRAY_SIZE, deviceIndex);
+  stream = new HIPStream<T>(ARRAY_SIZE, event_timing, deviceIndex);
 
 #elif defined(HC)
   // Use the HC implementation
@@ -152,7 +168,7 @@ void run()
 
 #elif defined(OCL)
   // Use the OpenCL implementation
-  stream = new OCLStream<T>(ARRAY_SIZE, deviceIndex);
+  stream = new OCLStream<T>(ARRAY_SIZE, event_timing, deviceIndex);
 
 #elif defined(USE_RAJA)
   // Use the RAJA implementation
@@ -173,20 +189,15 @@ void run()
 #elif defined(OMP)
   // Use the OpenMP implementation
   stream = new OMPStream<T>(ARRAY_SIZE, a.data(), b.data(), c.data(), deviceIndex);
-
 #endif
 
   stream->init_arrays(startA, startB, startC);
 
-  int num_tests;
-#if defined (HIP)
-  num_tests = 7;
-#else
-  num_tests = 5;
-#endif
+  int num_tests = 7;
 
   // List of times
   std::vector<std::vector<double>> timings(num_tests);
+  float kernel_time;
 
   // Declare timers
   std::chrono::high_resolution_clock::time_point t1, t2;
@@ -196,27 +207,27 @@ void run()
   {
     // Execute Copy
     t1 = std::chrono::high_resolution_clock::now();
-    stream->copy();
+    kernel_time = stream->copy();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[0].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
+    timings[0].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
 
     // Execute Mul
     t1 = std::chrono::high_resolution_clock::now();
-    stream->mul();
+    kernel_time = stream->mul();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[1].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
+    timings[1].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
 
     // Execute Add
     t1 = std::chrono::high_resolution_clock::now();
-    stream->add();
+    kernel_time = stream->add();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[2].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
+    timings[2].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
 
     // Execute Triad
     t1 = std::chrono::high_resolution_clock::now();
-    stream->triad();
+    kernel_time = stream->triad();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[3].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
+    timings[3].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
 
     // Execute Dot
     t1 = std::chrono::high_resolution_clock::now();
@@ -224,17 +235,15 @@ void run()
     t2 = std::chrono::high_resolution_clock::now();
     timings[4].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
 
-#if defined(HIP)
     t1 = std::chrono::high_resolution_clock::now();
-    stream->read();
+    kernel_time = stream->read();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[5].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
+    timings[5].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
 
     t1 = std::chrono::high_resolution_clock::now();
-    stream->write();
+    kernel_time = stream->write();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[6].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
-#endif
+    timings[6].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
   }
 
   // Check solutions
@@ -266,27 +275,16 @@ void run()
       << std::fixed;
   }
 
-
-
-  std::string labels[num_tests];
-  size_t sizes[num_tests];
-
-  labels[0] = "Copy";
-  sizes[0] = 2 * sizeof(T) * ARRAY_SIZE;
-  labels[1] = "Mul";
-  sizes[1] = 2 * sizeof(T) * ARRAY_SIZE;
-  labels[2] = "Add";
-  sizes[2] = 3 * sizeof(T) * ARRAY_SIZE;
-  labels[3] = "Triad";
-  sizes[3] = 3 * sizeof(T) * ARRAY_SIZE;
-  labels[4] = "Dot";
-  sizes[4] = 2 * sizeof(T) * ARRAY_SIZE;
-#if defined(HIP)
-  labels[5] = "Read";
-  sizes[5] = sizeof(T) * ARRAY_SIZE;
-  labels[6] = "Write";
-  sizes[6] = sizeof(T) * ARRAY_SIZE;
-#endif
+  std::string labels[7] = {"Copy", "Mul", "Add", "Triad", "Dot", "Read", "Write"};
+  size_t sizes[7] = {
+    2 * sizeof(T) * ARRAY_SIZE,
+    2 * sizeof(T) * ARRAY_SIZE,
+    3 * sizeof(T) * ARRAY_SIZE,
+    3 * sizeof(T) * ARRAY_SIZE,
+    2 * sizeof(T) * ARRAY_SIZE,
+    sizeof(T) * ARRAY_SIZE,
+    sizeof(T) * ARRAY_SIZE
+  };
 
   for (int i = 0; i < num_tests; i++)
   {
@@ -370,15 +368,15 @@ void run_triad()
 
 #if defined(CUDA)
   // Use the CUDA implementation
-  stream = new CUDAStream<T>(ARRAY_SIZE, deviceIndex);
+  stream = new CUDAStream<T>(ARRAY_SIZE, event_timing, deviceIndex);
 
 #elif defined(HIP)
   // Use the HIP implementation
-  stream = new HIPStream<T>(ARRAY_SIZE, deviceIndex);
+  stream = new HIPStream<T>(ARRAY_SIZE, event_timing, deviceIndex);
 
 #elif defined(OCL)
   // Use the OpenCL implementation
-  stream = new OCLStream<T>(ARRAY_SIZE, deviceIndex);
+  stream = new OCLStream<T>(ARRAY_SIZE, event_timing, deviceIndex);
 
 #elif defined(USE_RAJA)
   // Use the RAJA implementation
@@ -408,14 +406,19 @@ void run_triad()
   std::chrono::high_resolution_clock::time_point t1, t2;
 
   // Run triad in loop
+  double kernel_times = 0.;
   t1 = std::chrono::high_resolution_clock::now();
   for (unsigned int k = 0; k < num_times; k++)
   {
-    stream->triad();
+    kernel_times += stream->triad();
   }
   t2 = std::chrono::high_resolution_clock::now();
 
-  double runtime = std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
+  double runtime;
+  if (!event_timing)
+    runtime = std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
+  else
+    runtime = kernel_times / 1000.;
 
   // Check solutions
   T sum = 0.0;
@@ -574,6 +577,11 @@ void parseArguments(int argc, char *argv[])
     {
       triad_only = true;
     }
+    else if (!std::string("--event-timing").compare(argv[i]) ||
+             !std::string("-e").compare(argv[i]))
+    {
+      event_timing = true;
+    }
     else if (!std::string("--csv").compare(argv[i]))
     {
       output_as_csv = true;
@@ -595,6 +603,7 @@ void parseArguments(int argc, char *argv[])
       std::cout << "  -n  --numtimes   NUM     Run the test NUM times (NUM >= 2)" << std::endl;
       std::cout << "      --float              Use floats (rather than doubles)" << std::endl;
       std::cout << "      --triad-only         Only run triad" << std::endl;
+      std::cout << "  -e  --event-timing       Use event timing instead of host-side timing" << std::endl;
       std::cout << "      --csv                Output as csv table" << std::endl;
       std::cout << "      --mibibytes          Use MiB=2^20 for bandwidth calculation (default MB=10^6)" << std::endl;
       std::cout << std::endl;

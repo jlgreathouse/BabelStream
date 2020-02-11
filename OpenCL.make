@@ -27,7 +27,7 @@ PLATFORM = $(shell uname -s)
 ifeq ($(PLATFORM), Darwin)
   LIBS = -framework OpenCL
 else
-  LIBS = -lOpenCL
+  LIBS = -I/opt/rocm/opencl/include/ -L/opt/rocm/opencl/lib/x86_64/ -lOpenCL
 endif
 
 ocl-stream: main.cpp OCLStream.cpp

@@ -23,8 +23,10 @@ void check_error(void)
 }
 
 template <class T>
-HIPStream<T>::HIPStream(const unsigned int ARRAY_SIZE, const int device_index)
-  : array_size{ARRAY_SIZE}, block_cnt(array_size / (TBSIZE * elts_per_lane))
+HIPStream<T>::HIPStream(const unsigned int ARRAY_SIZE, const bool event_timing,
+  const int device_index)
+  : array_size{ARRAY_SIZE}, evt_timing(event_timing),
+    block_cnt(array_size / (TBSIZE * elts_per_lane))
 {
 
   // The array size must be divisible by TBSIZE for kernel launches
@@ -64,7 +66,10 @@ HIPStream<T>::HIPStream(const unsigned int ARRAY_SIZE, const int device_index)
   check_error();
   hipMalloc(&d_c, ARRAY_SIZE * sizeof(T));
   check_error();
-  hipMalloc(&d_sum, block_cnt * sizeof(T));
+
+  hipEventCreate(&start_ev);
+  check_error();
+  hipEventCreate(&stop_ev);
   check_error();
 }
 
@@ -80,7 +85,9 @@ HIPStream<T>::~HIPStream()
   check_error();
   hipFree(d_c);
   check_error();
-  hipFree(d_sum);
+  hipEventDestroy(start_ev);
+  check_error();
+  hipEventDestroy(stop_ev);
   check_error();
 }
 
@@ -130,13 +137,28 @@ __global__ void read_kernel(const T * __restrict a, T * __restrict c)
 }
 
 template <class T>
-void HIPStream<T>::read()
+float HIPStream<T>::read()
 {
-  hipLaunchKernelGGL(read_kernel<elts_per_lane>, dim3(block_cnt), dim3(TBSIZE),
-                     0, nullptr, d_a, d_c);
-  check_error();
-  hipDeviceSynchronize();
-  check_error();
+  float kernel_time = 0.;
+  if (evt_timing)
+  {
+    hipExtLaunchKernelGGL(read_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                        0, nullptr, start_ev, stop_ev, 0, d_a, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+    hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
+    check_error();
+  }
+  else
+  {
+    hipExtLaunchKernelGGL(read_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                        0, nullptr, 0, stop_ev, 0, d_a, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+  }
+  return kernel_time;
 }
 
 template <unsigned int elts_per_lane, typename T>
@@ -150,13 +172,28 @@ __global__ void write_kernel(T * __restrict c)
 }
 
 template <class T>
-void HIPStream<T>::write()
+float HIPStream<T>::write()
 {
-  hipLaunchKernelGGL(write_kernel<elts_per_lane>, dim3(block_cnt), dim3(TBSIZE),
-                     0, nullptr, d_c);
-  check_error();
-  hipDeviceSynchronize();
-  check_error();
+  float kernel_time = 0.;
+  if (evt_timing)
+  {
+    hipExtLaunchKernelGGL(write_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                       0, nullptr, start_ev, stop_ev, 0, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+    hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
+    check_error();
+  }
+  else
+  {
+    hipExtLaunchKernelGGL(write_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                       0, nullptr, 0, stop_ev, 0, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+  }
+  return kernel_time;
 }
 
 template <unsigned int elts_per_lane, typename T>
@@ -168,13 +205,28 @@ __global__ void copy_kernel(const T * __restrict a, T * __restrict c)
 }
 
 template <class T>
-void HIPStream<T>::copy()
+float HIPStream<T>::copy()
 {
-  hipLaunchKernelGGL(copy_kernel<elts_per_lane>, dim3(block_cnt), dim3(TBSIZE),
-                     0, nullptr, d_a, d_c);
-  check_error();
-  hipDeviceSynchronize();
-  check_error();
+  float kernel_time = 0.;
+  if (evt_timing)
+  {
+    hipExtLaunchKernelGGL(copy_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                       0, nullptr, start_ev, stop_ev, 0, d_a, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+    hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
+    check_error();
+  }
+  else
+  {
+    hipExtLaunchKernelGGL(copy_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                       0, nullptr, 0, stop_ev, 0, d_a, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+  }
+  return kernel_time;
 }
 
 template <unsigned int elts_per_lane, typename T>
@@ -187,13 +239,28 @@ __global__ void mul_kernel(T * __restrict b, const T * __restrict c)
 }
 
 template <class T>
-void HIPStream<T>::mul()
+float HIPStream<T>::mul()
 {
-  hipLaunchKernelGGL(mul_kernel<elts_per_lane>, dim3(block_cnt), dim3(TBSIZE),
-                     0, nullptr, d_b, d_c);
-  check_error();
-  hipDeviceSynchronize();
-  check_error();
+  float kernel_time = 0.;
+  if (evt_timing)
+  {
+    hipExtLaunchKernelGGL(mul_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                       0, nullptr, start_ev, stop_ev, 0, d_b, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+    hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
+    check_error();
+  }
+  else
+  {
+    hipExtLaunchKernelGGL(mul_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                       0, nullptr, 0, stop_ev, 0, d_b, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+  }
+  return kernel_time;
 }
 
 template <unsigned int elts_per_lane, typename T>
@@ -208,13 +275,28 @@ __global__ void add_kernel(const T * __restrict a, const T * __restrict b,
 }
 
 template <class T>
-void HIPStream<T>::add()
+float HIPStream<T>::add()
 {
-  hipLaunchKernelGGL(add_kernel<elts_per_lane>, dim3(block_cnt), dim3(TBSIZE),
-                     0, nullptr, d_a, d_b, d_c);
-  check_error();
-  hipDeviceSynchronize();
-  check_error();
+  float kernel_time = 0.;
+  if (evt_timing)
+  {
+    hipExtLaunchKernelGGL(add_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                       0, nullptr, start_ev, stop_ev, 0, d_a, d_b, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+    hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
+    check_error();
+  }
+  else
+  {
+    hipExtLaunchKernelGGL(add_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                       0, nullptr, 0, stop_ev, 0, d_a, d_b, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+  }
+  return kernel_time;
 }
 
 template <unsigned int elts_per_lane, typename T>
@@ -230,13 +312,28 @@ __global__ void triad_kernel(T * __restrict a, const T * __restrict b,
 }
 
 template <class T>
-void HIPStream<T>::triad()
+float HIPStream<T>::triad()
 {
-  hipLaunchKernelGGL(triad_kernel<elts_per_lane>, dim3(block_cnt), dim3(TBSIZE),
-                     0, nullptr, d_a, d_b, d_c);
-  check_error();
-  hipDeviceSynchronize();
-  check_error();
+  float kernel_time = 0.;
+  if (evt_timing)
+  {
+    hipExtLaunchKernelGGL(triad_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                       0, nullptr, start_ev, stop_ev, 0, d_a, d_b, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+    hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
+    check_error();
+  }
+  else
+  {
+    hipExtLaunchKernelGGL(triad_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                       0, nullptr, 0, stop_ev, 0, d_a, d_b, d_c);
+    check_error();
+    hipEventSynchronize(stop_ev);
+    check_error();
+  }
+  return kernel_time;
 }
 
 template <unsigned int elts_per_lane, class T>
@@ -270,11 +367,10 @@ __global__ void dot_kernel(const T * __restrict a, const T * __restrict b,
 template <class T>
 T HIPStream<T>::dot()
 {
-  hipLaunchKernelGGL(dot_kernel<elts_per_lane>, dim3(block_cnt), dim3(TBSIZE),
-                     0, nullptr, d_a, d_b, d_sum);
+  hipExtLaunchKernelGGL(dot_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
+                     0, nullptr, 0, stop_ev, 0, d_a, d_b, sums);
   check_error();
-
-  hipMemcpy(sums, d_sum, block_cnt * sizeof(T), hipMemcpyDeviceToHost);
+  hipEventSynchronize(stop_ev);
   check_error();
 
   return std::accumulate(sums, sums + block_cnt, T{0});

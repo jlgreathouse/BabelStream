@@ -25,12 +25,12 @@ class Stream
 
     // Kernels
     // These must be blocking calls
-    virtual void read() = 0;
-    virtual void write() = 0;
-    virtual void copy() = 0;
-    virtual void mul() = 0;
-    virtual void add() = 0;
-    virtual void triad() = 0;
+    virtual float read() = 0;
+    virtual float write() = 0;
+    virtual float copy() = 0;
+    virtual float mul() = 0;
+    virtual float add() = 0;
+    virtual float triad() = 0;
     virtual T dot() = 0;
 
     // Copy memory between host and device

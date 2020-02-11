@@ -87,7 +87,40 @@ SYCLStream<T>::~SYCLStream()
 }
 
 template <class T>
-void SYCLStream<T>::copy()
+float SYCLStream<T>::read()
+{
+  queue->submit([&](handler &cgh)
+  {
+    auto ka = d_a->template get_access<access::mode::read>(cgh);
+    auto kc = d_c->template get_access<access::mode::write>(cgh);
+    cgh.parallel_for<copy_kernel>(range<1>{array_size}, [=](id<1> idx)
+    {
+      auto local_temp = ka[idx];
+      if (local_temp == 126789.)
+        kc[idx] = local_temp;
+    });
+  });
+  queue->wait();
+  return 0.;
+}
+
+template <class T>
+float SYCLStream<T>::write()
+{
+  queue->submit([&](handler &cgh)
+  {
+    auto kc = d_c->template get_access<access::mode::write>(cgh);
+    cgh.parallel_for<copy_kernel>(range<1>{array_size}, [=](id<1> idx)
+    {
+      kc[idx] = 0.;
+    });
+  });
+  queue->wait();
+  return 0.;
+}
+
+template <class T>
+float SYCLStream<T>::copy()
 {
   queue->submit([&](handler &cgh)
   {
@@ -99,10 +132,11 @@ void SYCLStream<T>::copy()
     });
   });
   queue->wait();
+  return 0.;
 }
 
 template <class T>
-void SYCLStream<T>::mul()
+float SYCLStream<T>::mul()
 {
   const T scalar = startScalar;
   queue->submit([&](handler &cgh)
@@ -115,10 +149,11 @@ void SYCLStream<T>::mul()
     });
   });
   queue->wait();
+  return 0.;
 }
 
 template <class T>
-void SYCLStream<T>::add()
+float SYCLStream<T>::add()
 {
   queue->submit([&](handler &cgh)
   {
@@ -131,10 +166,11 @@ void SYCLStream<T>::add()
     });
   });
   queue->wait();
+  return 0.;
 }
 
 template <class T>
-void SYCLStream<T>::triad()
+float SYCLStream<T>::triad()
 {
   const T scalar = startScalar;
   queue->submit([&](handler &cgh)
@@ -148,6 +184,7 @@ void SYCLStream<T>::triad()
     });
   });
   queue->wait();
+  return 0.;
 }
 
 template <class T>

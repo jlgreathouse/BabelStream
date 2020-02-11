@@ -33,10 +33,12 @@ public:
   HCStream(const unsigned int, const int);
   ~HCStream();
 
-  virtual void copy() override;
-  virtual void add() override;
-  virtual void mul() override;
-  virtual void triad() override;
+  virtual float read() override;
+  virtual float write() override;
+  virtual float copy() override;
+  virtual float add() override;
+  virtual float mul() override;
+  virtual float triad() override;
   virtual T dot() override;
   T dot_impl();
 

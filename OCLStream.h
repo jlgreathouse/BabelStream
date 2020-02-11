@@ -26,7 +26,8 @@ class OCLStream : public Stream<T>
 {
   protected:
     // Size of arrays
-    unsigned int array_size;
+    const unsigned int array_size;
+    const bool evt_timing;
 
     // Host array for partial sums for dot kernel
     std::vector<T> sums;
@@ -43,6 +44,8 @@ class OCLStream : public Stream<T>
     cl::CommandQueue queue;
 
     cl::KernelFunctor<cl::Buffer, cl::Buffer, cl::Buffer, T, T, T> *init_kernel;
+    cl::KernelFunctor<cl::Buffer, cl::Buffer> *read_kernel;
+    cl::KernelFunctor<cl::Buffer> *write_kernel;
     cl::KernelFunctor<cl::Buffer, cl::Buffer> *copy_kernel;
     cl::KernelFunctor<cl::Buffer, cl::Buffer> * mul_kernel;
     cl::KernelFunctor<cl::Buffer, cl::Buffer, cl::Buffer> *add_kernel;
@@ -55,13 +58,15 @@ class OCLStream : public Stream<T>
 
   public:
 
-    OCLStream(const unsigned int, const int);
+    OCLStream(const unsigned int, const bool, const int);
     ~OCLStream();
 
-    virtual void copy() override;
-    virtual void add() override;
-    virtual void mul() override;
-    virtual void triad() override;
+    virtual float read() override;
+    virtual float write() override;
+    virtual float copy() override;
+    virtual float add() override;
+    virtual float mul() override;
+    virtual float triad() override;
     virtual T dot() override;
 
     virtual void init_arrays(T initA, T initB, T initC) override;

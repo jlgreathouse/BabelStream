@@ -28,6 +28,23 @@ std::string kernels{R"CLC(
     c[i] = initC;
   }
 
+  kernel void read(
+    global const TYPE * restrict a,
+    global TYPE * restrict c)
+  {
+    const size_t i = get_global_id(0);
+    TYPE local_temp = a[i];
+    if (local_temp == 126789.)
+        c[i] = local_temp;
+  }
+
+  kernel void write(
+    global TYPE * restrict c)
+  {
+    const size_t i = get_global_id(0);
+    c[i] = 0.;
+  }
+
   kernel void copy(
     global const TYPE * restrict a,
     global TYPE * restrict c)
@@ -92,7 +109,9 @@ std::string kernels{R"CLC(
 
 
 template <class T>
-OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const int device_index)
+OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const bool event_timing,
+  const int device_index)
+  : array_size(ARRAY_SIZE), evt_timing(event_timing)
 {
   if (!cached)
     getDeviceList();
@@ -120,7 +139,10 @@ OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const int device_index)
   std::cout << "Reduction kernel config: " << dot_num_groups << " groups of size " << dot_wgsize << std::endl;
 
   context = cl::Context(device);
-  queue = cl::CommandQueue(context);
+  if (evt_timing)
+    queue = cl::CommandQueue(context, CL_QUEUE_PROFILING_ENABLE);
+  else
+    queue = cl::CommandQueue(context);
 
   // Create program
   cl::Program program(context, kernels);
@@ -153,13 +175,13 @@ OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const int device_index)
 
   // Create kernels
   init_kernel = new cl::KernelFunctor<cl::Buffer, cl::Buffer, cl::Buffer, T, T, T>(program, "init");
+  read_kernel = new cl::KernelFunctor<cl::Buffer, cl::Buffer>(program, "read");
+  write_kernel = new cl::KernelFunctor<cl::Buffer>(program, "write");
   copy_kernel = new cl::KernelFunctor<cl::Buffer, cl::Buffer>(program, "copy");
   mul_kernel = new cl::KernelFunctor<cl::Buffer, cl::Buffer>(program, "mul");
   add_kernel = new cl::KernelFunctor<cl::Buffer, cl::Buffer, cl::Buffer>(program, "add");
   triad_kernel = new cl::KernelFunctor<cl::Buffer, cl::Buffer, cl::Buffer>(program, "triad");
   dot_kernel = new cl::KernelFunctor<cl::Buffer, cl::Buffer, cl::Buffer, cl::LocalSpaceArg, cl_int>(program, "stream_dot");
-
-  array_size = ARRAY_SIZE;
 
   // Check buffers fit on the device
   cl_ulong totalmem = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
@@ -182,6 +204,8 @@ template <class T>
 OCLStream<T>::~OCLStream()
 {
   delete init_kernel;
+  delete read_kernel;
+  delete write_kernel;
   delete copy_kernel;
   delete mul_kernel;
   delete add_kernel;
@@ -191,49 +215,117 @@ OCLStream<T>::~OCLStream()
 }
 
 template <class T>
-void OCLStream<T>::copy()
+float OCLStream<T>::read()
 {
-  (*copy_kernel)(
+  float kernel_time = 0.;
+  cl::Event evt = (*read_kernel)(
     cl::EnqueueArgs(queue, cl::NDRange(array_size)),
     d_a, d_c
   );
-  queue.finish();
+  evt.wait();
+  if (evt_timing)
+  {
+    kernel_time = (evt.getProfilingInfo<CL_PROFILING_COMMAND_END>() -
+                    evt.getProfilingInfo<CL_PROFILING_COMMAND_START>())
+                    / 1000000.;
+  }
+  return kernel_time;
 }
 
 template <class T>
-void OCLStream<T>::mul()
+float OCLStream<T>::write()
 {
-  (*mul_kernel)(
+  float kernel_time = 0.;
+  cl::Event evt = (*write_kernel)(
+    cl::EnqueueArgs(queue, cl::NDRange(array_size)),
+    d_c
+  );
+  evt.wait();
+  if (evt_timing)
+  {
+    kernel_time = (evt.getProfilingInfo<CL_PROFILING_COMMAND_END>() -
+                    evt.getProfilingInfo<CL_PROFILING_COMMAND_START>())
+                    / 1000000.;
+  }
+  return kernel_time;
+}
+
+template <class T>
+float OCLStream<T>::copy()
+{
+  float kernel_time = 0.;
+  cl::Event evt = (*copy_kernel)(
+    cl::EnqueueArgs(queue, cl::NDRange(array_size)),
+    d_a, d_c
+  );
+  evt.wait();
+  if (evt_timing)
+  {
+    kernel_time = (evt.getProfilingInfo<CL_PROFILING_COMMAND_END>() -
+                    evt.getProfilingInfo<CL_PROFILING_COMMAND_START>())
+                    / 1000000.;
+  }
+  return kernel_time;
+}
+
+template <class T>
+float OCLStream<T>::mul()
+{
+  float kernel_time = 0.;
+  cl::Event evt = (*mul_kernel)(
     cl::EnqueueArgs(queue, cl::NDRange(array_size)),
     d_b, d_c
   );
-  queue.finish();
+  evt.wait();
+  if (evt_timing)
+  {
+    kernel_time = (evt.getProfilingInfo<CL_PROFILING_COMMAND_END>() -
+                    evt.getProfilingInfo<CL_PROFILING_COMMAND_START>())
+                    / 1000000.;
+  }
+  return kernel_time;
 }
 
 template <class T>
-void OCLStream<T>::add()
+float OCLStream<T>::add()
 {
-  (*add_kernel)(
+  float kernel_time = 0.;
+  cl::Event evt = (*add_kernel)(
     cl::EnqueueArgs(queue, cl::NDRange(array_size)),
     d_a, d_b, d_c
   );
-  queue.finish();
+  evt.wait();
+  if (evt_timing)
+  {
+    kernel_time = (evt.getProfilingInfo<CL_PROFILING_COMMAND_END>() -
+                    evt.getProfilingInfo<CL_PROFILING_COMMAND_START>())
+                    / 1000000.;
+  }
+  return kernel_time;
 }
 
 template <class T>
-void OCLStream<T>::triad()
+float OCLStream<T>::triad()
 {
-  (*triad_kernel)(
+  float kernel_time = 0.;
+  cl::Event evt = (*triad_kernel)(
     cl::EnqueueArgs(queue, cl::NDRange(array_size)),
     d_a, d_b, d_c
   );
-  queue.finish();
+  evt.wait();
+  if (evt_timing)
+  {
+    kernel_time = (evt.getProfilingInfo<CL_PROFILING_COMMAND_END>() -
+                    evt.getProfilingInfo<CL_PROFILING_COMMAND_START>())
+                    / 1000000.;
+  }
+  return kernel_time;
 }
 
 template <class T>
 T OCLStream<T>::dot()
 {
-  (*dot_kernel)(
+  cl::Event evt = (*dot_kernel)(
     cl::EnqueueArgs(queue, cl::NDRange(dot_num_groups*dot_wgsize), cl::NDRange(dot_wgsize)),
     d_a, d_b, d_sum, cl::Local(sizeof(T) * dot_wgsize), array_size
   );
@@ -249,11 +341,11 @@ T OCLStream<T>::dot()
 template <class T>
 void OCLStream<T>::init_arrays(T initA, T initB, T initC)
 {
-  (*init_kernel)(
+  cl::Event evt = (*init_kernel)(
     cl::EnqueueArgs(queue, cl::NDRange(array_size)),
     d_a, d_b, d_c, initA, initB, initC
   );
-  queue.finish();
+  evt.wait();
 }
 
 template <class T>
