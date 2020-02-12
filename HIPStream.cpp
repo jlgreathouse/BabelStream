@@ -8,8 +8,6 @@
 #include "HIPStream.h"
 #include "hip/hip_runtime.h"
 
-#include <numeric>
-
 #define TBSIZE 1024
 
 void check_error(void)
@@ -373,7 +371,11 @@ T HIPStream<T>::dot()
   hipEventSynchronize(stop_ev);
   check_error();
 
-  return std::accumulate(sums, sums + block_cnt, T{0});
+  T sum = 0.0;
+  for (int i = 0; i < block_cnt; i++)
+    sum += sums[i];
+
+  return sum;
 }
 
 void listDevices(void)
