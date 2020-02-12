@@ -15,16 +15,16 @@
 #include "Stream.h"
 
 #define IMPLEMENTATION_STRING "CUDA"
-
-#define TBSIZE 1024
 #define DOT_NUM_BLOCKS 256
 
 template <class T>
 class CUDAStream : public Stream<T>
 {
+  static constexpr int elts_per_lane{1};
   protected:
     // Size of arrays
     const unsigned int array_size;
+    const unsigned int block_cnt;
     const bool evt_timing;
     cudaEvent_t start_ev;
     cudaEvent_t stop_ev;
@@ -36,11 +36,8 @@ class CUDAStream : public Stream<T>
     T *d_a;
     T *d_b;
     T *d_c;
-    T *d_sum;
-
 
   public:
-
     CUDAStream(const unsigned int, const bool, const int);
     ~CUDAStream();
 
@@ -54,5 +51,4 @@ class CUDAStream : public Stream<T>
 
     virtual void init_arrays(T initA, T initB, T initC) override;
     virtual void read_arrays(std::vector<T>& a, std::vector<T>& b, std::vector<T>& c) override;
-
 };
