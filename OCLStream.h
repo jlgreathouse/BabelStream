@@ -27,6 +27,7 @@ class OCLStream : public Stream<T>
   protected:
     // Size of arrays
     const unsigned int array_size;
+    unsigned int elts_per_lane;
     const bool evt_timing;
 
     // Host array for partial sums for dot kernel

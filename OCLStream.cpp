@@ -32,33 +32,42 @@ std::string kernels{R"CLC(
     global const TYPE * restrict a,
     global TYPE * restrict c)
   {
-    const size_t i = get_global_id(0);
-    TYPE local_temp = a[i];
+    const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
+    TYPE local_temp = 0.;
+    for (int i = 0; i != ELTS_PER_LANE; ++i) {
+        local_temp += a[gidx + i];
+    }
     if (local_temp == 126789.)
-        c[i] = local_temp;
+        c[gidx] = local_temp;
   }
 
   kernel void write(
     global TYPE * restrict c)
   {
-    const size_t i = get_global_id(0);
-    c[i] = 0.;
+    const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
+    for (int i = 0; i != ELTS_PER_LANE; ++i) {
+        c[gidx+i] = 0.;
+    }
   }
 
   kernel void copy(
     global const TYPE * restrict a,
     global TYPE * restrict c)
   {
-    const size_t i = get_global_id(0);
-    c[i] = a[i];
+    const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
+    for (int i = 0; i != ELTS_PER_LANE; ++i) {
+        c[gidx+i] = a[gidx+i];
+    }
   }
 
   kernel void mul(
     global TYPE * restrict b,
     global const TYPE * restrict c)
   {
-    const size_t i = get_global_id(0);
-    b[i] = scalar * c[i];
+    const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
+    for (int i = 0; i != ELTS_PER_LANE; ++i) {
+        b[gidx+i] = scalar * c[gidx+i];
+    }
   }
 
   kernel void add(
@@ -66,8 +75,10 @@ std::string kernels{R"CLC(
     global const TYPE * restrict b,
     global TYPE * restrict c)
   {
-    const size_t i = get_global_id(0);
-    c[i] = a[i] + b[i];
+    const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
+    for (int i = 0; i != ELTS_PER_LANE; ++i) {
+        c[gidx+i] = a[gidx+i] + b[gidx+i];
+    }
   }
 
   kernel void triad(
@@ -75,8 +86,10 @@ std::string kernels{R"CLC(
     global const TYPE * restrict b,
     global const TYPE * restrict c)
   {
-    const size_t i = get_global_id(0);
-    a[i] = b[i] + scalar * c[i];
+    const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
+    for (int i = 0; i != ELTS_PER_LANE; ++i) {
+        a[gidx+i] = b[gidx+i] + scalar * c[gidx+i];
+    }
   }
 
   kernel void stream_dot(
@@ -107,6 +120,25 @@ std::string kernels{R"CLC(
 
 )CLC"};
 
+static std::string getDeviceVendor(const int device)
+{
+  if (!cached)
+    getDeviceList();
+
+  std::string vendor;
+  cl_device_info info = CL_DEVICE_VENDOR;
+
+  if (device < devices.size())
+  {
+    devices[device].getInfo(info, &vendor);
+  }
+  else
+  {
+    throw std::runtime_error("Error asking for name for non-existant device");
+  }
+
+  return vendor;
+}
 
 template <class T>
 OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const bool event_timing,
@@ -138,6 +170,13 @@ OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const bool event_timing,
   std::cout << "Driver: " << getDeviceDriver(device_index) << std::endl;
   std::cout << "Reduction kernel config: " << dot_num_groups << " groups of size " << dot_wgsize << std::endl;
 
+  unsigned int size_of_good_load = sizeof(unsigned int);
+  if (!getDeviceVendor(device_index).compare("Advanced Micro Devices, Inc."))
+      size_of_good_load *= 4;;
+  elts_per_lane = size_of_good_load / sizeof(T);
+  if (elts_per_lane == 0)
+    elts_per_lane++;
+
   context = cl::Context(device);
   if (evt_timing)
     queue = cl::CommandQueue(context, CL_QUEUE_PROFILING_ENABLE);
@@ -148,6 +187,7 @@ OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const bool event_timing,
   cl::Program program(context, kernels);
   std::ostringstream args;
   args << "-DstartScalar=" << startScalar << " ";
+  args << "-DELTS_PER_LANE=" << elts_per_lane << " ";
   if (sizeof(T) == sizeof(double))
   {
     args << "-DTYPE=double";
@@ -219,7 +259,7 @@ float OCLStream<T>::read()
 {
   float kernel_time = 0.;
   cl::Event evt = (*read_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
     d_a, d_c
   );
   evt.wait();
@@ -237,7 +277,7 @@ float OCLStream<T>::write()
 {
   float kernel_time = 0.;
   cl::Event evt = (*write_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
     d_c
   );
   evt.wait();
@@ -255,7 +295,7 @@ float OCLStream<T>::copy()
 {
   float kernel_time = 0.;
   cl::Event evt = (*copy_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
     d_a, d_c
   );
   evt.wait();
@@ -273,7 +313,7 @@ float OCLStream<T>::mul()
 {
   float kernel_time = 0.;
   cl::Event evt = (*mul_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
     d_b, d_c
   );
   evt.wait();
@@ -291,7 +331,7 @@ float OCLStream<T>::add()
 {
   float kernel_time = 0.;
   cl::Event evt = (*add_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
     d_a, d_b, d_c
   );
   evt.wait();
@@ -309,7 +349,7 @@ float OCLStream<T>::triad()
 {
   float kernel_time = 0.;
   cl::Event evt = (*triad_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
     d_a, d_b, d_c
   );
   evt.wait();
