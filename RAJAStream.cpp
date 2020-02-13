@@ -85,13 +85,13 @@ float RAJAStream<T>::read()
 }
 
 template <class T>
-float RAJAStream<T>::copy()
+float RAJAStream<T>::write()
 {
   T* RAJA_RESTRICT a = d_a;
   T* RAJA_RESTRICT c = d_c;
   forall<policy>(index_set, [=] RAJA_DEVICE (RAJA::Index_type index)
   {
-    c[index] = a[index];
+    c[index] = 0.;
   });
   return 0.;
 }
