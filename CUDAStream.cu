@@ -355,7 +355,7 @@ __global__ void dot_kernel(const T * __restrict a, const T * __restrict b,
 
   for (unsigned int vblock = blockIdx.x; vblock < total_blocks; vblock += gridDim.x)
   {
-    const auto gidx = (blockDim.x * outer + threadIdx.x);
+    const auto gidx = (blockDim.x * vblock + threadIdx.x);
     tmp += a[gidx] * b[gidx];
   }
 
