@@ -579,11 +579,13 @@ void parseArguments(int argc, char *argv[])
     {
       triad_only = true;
     }
+#if defined(HIP) || defined(CUDA) || defined(OCL)
     else if (!std::string("--event-timing").compare(argv[i]) ||
              !std::string("-e").compare(argv[i]))
     {
       event_timing = true;
     }
+#endif
     else if (!std::string("--csv").compare(argv[i]))
     {
       output_as_csv = true;
@@ -605,7 +607,9 @@ void parseArguments(int argc, char *argv[])
       std::cout << "  -n  --numtimes   NUM     Run the test NUM times (NUM >= 2)" << std::endl;
       std::cout << "      --float              Use floats (rather than doubles)" << std::endl;
       std::cout << "      --triad-only         Only run triad" << std::endl;
+#if defined(HIP) || defined(CUDA) || defined(OCL)
       std::cout << "  -e  --event-timing       Use event timing instead of host-side timing" << std::endl;
+#endif
       std::cout << "      --csv                Output as csv table" << std::endl;
       std::cout << "      --mibibytes          Use MiB=2^20 for bandwidth calculation (default MB=10^6)" << std::endl;
       std::cout << std::endl;
