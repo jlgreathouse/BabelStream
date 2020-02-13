@@ -70,8 +70,8 @@ float KokkosStream<T>::read()
   Kokkos::parallel_for(array_size, KOKKOS_LAMBDA (const long index)
   {
     T local_temp = a[index];
-    if (local_temp == 126789.))
-      c[index] = local_temp
+    if (local_temp == 126789.)
+      c[index] = local_temp;
   });
   Kokkos::fence();
   return 0.;
