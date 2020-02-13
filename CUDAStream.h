@@ -15,16 +15,15 @@
 #include "Stream.h"
 
 #define IMPLEMENTATION_STRING "CUDA"
-#define DOT_NUM_BLOCKS 256
 
 template <class T>
 class CUDAStream : public Stream<T>
 {
-  static constexpr int elts_per_lane{1};
   protected:
     // Size of arrays
     const unsigned int array_size;
     const unsigned int block_cnt;
+    const unsigned int dot_block_cnt;
     const bool evt_timing;
     cudaEvent_t start_ev;
     cudaEvent_t stop_ev;

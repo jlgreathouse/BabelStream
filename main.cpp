@@ -205,45 +205,47 @@ void run()
   // Main loop
   for (unsigned int k = 0; k < num_times; k++)
   {
+    // Execute Read-only
+    t1 = std::chrono::high_resolution_clock::now();
+    kernel_time = stream->read();
+    t2 = std::chrono::high_resolution_clock::now();
+    timings[0].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
+
+    // Execute Write-only
+    t1 = std::chrono::high_resolution_clock::now();
+    kernel_time = stream->write();
+    t2 = std::chrono::high_resolution_clock::now();
+    timings[1].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
+
     // Execute Copy
     t1 = std::chrono::high_resolution_clock::now();
     kernel_time = stream->copy();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[0].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
+    timings[2].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
 
     // Execute Mul
     t1 = std::chrono::high_resolution_clock::now();
     kernel_time = stream->mul();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[1].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
+    timings[3].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
 
     // Execute Add
     t1 = std::chrono::high_resolution_clock::now();
     kernel_time = stream->add();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[2].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
+    timings[4].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
 
     // Execute Triad
     t1 = std::chrono::high_resolution_clock::now();
     kernel_time = stream->triad();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[3].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
+    timings[5].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
 
     // Execute Dot
     t1 = std::chrono::high_resolution_clock::now();
     sum = stream->dot();
     t2 = std::chrono::high_resolution_clock::now();
-    timings[4].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
-
-    t1 = std::chrono::high_resolution_clock::now();
-    kernel_time = stream->read();
-    t2 = std::chrono::high_resolution_clock::now();
-    timings[5].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
-
-    t1 = std::chrono::high_resolution_clock::now();
-    kernel_time = stream->write();
-    t2 = std::chrono::high_resolution_clock::now();
-    timings[6].push_back(calculate_time_s(event_timing, t1, t2, kernel_time));
+    timings[6].push_back(std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count());
   }
 
   // Check solutions
@@ -275,15 +277,15 @@ void run()
       << std::fixed;
   }
 
-  std::string labels[7] = {"Copy", "Mul", "Add", "Triad", "Dot", "Read", "Write"};
+  std::string labels[7] = {"Read", "Write", "Copy", "Mul", "Add", "Triad", "Dot"};
   size_t sizes[7] = {
-    2 * sizeof(T) * ARRAY_SIZE,
-    2 * sizeof(T) * ARRAY_SIZE,
-    3 * sizeof(T) * ARRAY_SIZE,
-    3 * sizeof(T) * ARRAY_SIZE,
-    2 * sizeof(T) * ARRAY_SIZE,
     sizeof(T) * ARRAY_SIZE,
-    sizeof(T) * ARRAY_SIZE
+    sizeof(T) * ARRAY_SIZE,
+    2 * sizeof(T) * ARRAY_SIZE,
+    2 * sizeof(T) * ARRAY_SIZE,
+    3 * sizeof(T) * ARRAY_SIZE,
+    3 * sizeof(T) * ARRAY_SIZE,
+    2 * sizeof(T) * ARRAY_SIZE
   };
 
   for (int i = 0; i < num_tests; i++)

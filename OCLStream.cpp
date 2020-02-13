@@ -97,47 +97,48 @@ std::string kernels{R"CLC(
     global const TYPE * restrict b,
     global TYPE * restrict sum,
     local TYPE * restrict wg_sum,
-    int array_size)
+    uint array_size)
   {
-    size_t i = get_global_id(0);
+    size_t i = get_global_id(0) * ELTS_PER_LANE;
     const size_t local_i = get_local_id(0);
-    wg_sum[local_i] = 0.0;
-    for (; i < array_size; i += get_global_size(0))
-      wg_sum[local_i] += a[i] * b[i];
+    TYPE tmp = 0.;
+
+    for (; i < array_size; i+=(get_global_size(0) * ELTS_PER_LANE)) {
+      for (int j = 0; j < ELTS_PER_LANE; j++)
+        tmp += a[i+j] * b[i+j];
+    }
+
+    wg_sum[local_i] = tmp;
 
     for (int offset = get_local_size(0) / 2; offset > 0; offset /= 2)
     {
       barrier(CLK_LOCAL_MEM_FENCE);
-      if (local_i < offset)
-      {
-        wg_sum[local_i] += wg_sum[local_i+offset];
-      }
+      if (local_i >= offset) continue;
+
+      wg_sum[local_i] += wg_sum[local_i + offset];
     }
 
-    if (local_i == 0)
-      sum[get_group_id(0)] = wg_sum[local_i];
+    if (local_i) return;
+
+    sum[get_group_id(0)] = wg_sum[0];
   }
 
 )CLC"};
 
-static std::string getDeviceVendor(const int device)
+static unsigned int getDeviceVendor(const int device)
 {
   if (!cached)
     getDeviceList();
 
-  std::string vendor;
-  cl_device_info info = CL_DEVICE_VENDOR;
+  unsigned int vendor_id;
+  cl_device_info info = CL_DEVICE_VENDOR_ID;
 
   if (device < devices.size())
-  {
-    devices[device].getInfo(info, &vendor);
-  }
+    devices[device].getInfo(info, &vendor_id);
   else
-  {
     throw std::runtime_error("Error asking for name for non-existant device");
-  }
 
-  return vendor;
+  return vendor_id;
 }
 
 template <class T>
@@ -171,7 +172,7 @@ OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const bool event_timing,
   std::cout << "Reduction kernel config: " << dot_num_groups << " groups of size " << dot_wgsize << std::endl;
 
   unsigned int size_of_good_load = sizeof(unsigned int);
-  if (!getDeviceVendor(device_index).compare("Advanced Micro Devices, Inc."))
+  if (getDeviceVendor(device_index) == 0x1002) // AMD
       size_of_good_load *= 4;;
   elts_per_lane = size_of_good_load / sizeof(T);
   if (elts_per_lane == 0)
@@ -235,9 +236,7 @@ OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const bool event_timing,
   d_a = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(T) * ARRAY_SIZE);
   d_b = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(T) * ARRAY_SIZE);
   d_c = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(T) * ARRAY_SIZE);
-  d_sum = cl::Buffer(context, CL_MEM_WRITE_ONLY, sizeof(T) * dot_num_groups);
-
-  sums = std::vector<T>(dot_num_groups);
+  d_sum = cl::Buffer(context, CL_MEM_WRITE_ONLY|CL_MEM_ALLOC_HOST_PTR, sizeof(T) * dot_num_groups);
 }
 
 template <class T>
@@ -369,11 +368,12 @@ T OCLStream<T>::dot()
     cl::EnqueueArgs(queue, cl::NDRange(dot_num_groups*dot_wgsize), cl::NDRange(dot_wgsize)),
     d_a, d_b, d_sum, cl::Local(sizeof(T) * dot_wgsize), array_size
   );
-  cl::copy(queue, d_sum, sums.begin(), sums.end());
+  T *local_sums = static_cast<T*>(queue.enqueueMapBuffer(d_sum, CL_BLOCKING,
+                                  0, 0, dot_num_groups*sizeof(T)));
 
   T sum = 0.0;
-  for (T val : sums)
-    sum += val;
+  for (int i = 0; i < dot_num_groups; i++)
+    sum += local_sums[i];
 
   return sum;
 }

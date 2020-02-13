@@ -12,19 +12,27 @@
 #include <sstream>
 
 #include "Stream.h"
+#include "hip/hip_runtime.h"
+#ifndef __HIP_PLATFORM_NVCC__
 #include "hip/hip_ext.h"
+#endif
 
 #define IMPLEMENTATION_STRING "HIP"
 
 template <class T>
 class HIPStream : public Stream<T>
 {
-  static constexpr auto sizeof_dwordx4{sizeof(unsigned int) * 4};
-  static constexpr auto elts_per_lane{sizeof_dwordx4 / sizeof(T)};
+#ifdef __HIP_PLATFORM_NVCC__
+  static constexpr unsigned int elts_per_lane{1};
+#else
+  static constexpr unsigned int sizeof_best_size{sizeof(unsigned int) * 4};
+  static constexpr unsigned int elts_per_lane{sizeof_best_size / sizeof(T)};
+#endif
   protected:
     // Size of arrays
     const unsigned int array_size;
     const unsigned int block_cnt;
+    unsigned int dot_block_cnt;
     const bool evt_timing;
     hipEvent_t start_ev;
     hipEvent_t stop_ev;

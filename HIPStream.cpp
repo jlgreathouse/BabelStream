@@ -1,4 +1,4 @@
-// Copyright (c) 2015-16 Tom Deakin, Simon McIntosh-Smith,
+// Copyright (c) 2014-16 Tom Deakin, Simon McIntosh-Smith,
 // University of Bristol HPC
 //
 // For full license terms please see the LICENSE file distributed with this
@@ -20,13 +20,60 @@ void check_error(void)
   }
 }
 
+template <typename... Args, typename F = void (*)(Args...)>
+static void hipLaunchKernelWithEvents(F kernel, const dim3& numBlocks,
+                           const dim3& dimBlocks, hipStream_t stream,
+                           hipEvent_t startEvent, hipEvent_t stopEvent,
+                           Args... args)
+{
+#ifdef __HIP_PLATFORM_NVCC__
+  hipEventRecord(startEvent);
+  check_error();
+  hipLaunchKernelGGL(kernel, numBlocks, dimBlocks,
+                   0, stream, args...);
+  check_error();
+  hipEventRecord(stopEvent);
+  check_error();
+#else
+  hipExtLaunchKernelGGL(kernel, numBlocks, dimBlocks,
+                      0, stream, startEvent, stopEvent, 0, args...);
+  check_error();
+#endif
+}
+
+template <typename... Args, typename F = void (*)(Args...)>
+static void hipLaunchKernelSynchronous(F kernel, const dim3& numBlocks,
+                           const dim3& dimBlocks, hipStream_t stream,
+                           bool coherent, Args... args)
+{
+#ifdef __HIP_PLATFORM_NVCC__
+  hipLaunchKernelGGL(kernel, numBlocks, dimBlocks,
+                   0, stream, args...);
+  check_error();
+  hipDeviceSynchronize();
+  check_error();
+#else
+  hipEvent_t temp_event;
+  unsigned int flag = coherent ? hipEventReleaseToSystem : 0;
+  check_error();
+  hipEventCreateWithFlags(&temp_event, flag);
+  check_error();
+  hipExtLaunchKernelGGL(kernel, numBlocks, dimBlocks,
+                      0, stream, 0, temp_event, 0, args...);
+  check_error();
+  hipEventSynchronize(temp_event);
+  check_error();
+  hipEventDestroy(temp_event);
+  check_error();
+#endif
+}
+
 template <class T>
 HIPStream<T>::HIPStream(const unsigned int ARRAY_SIZE, const bool event_timing,
   const int device_index)
   : array_size{ARRAY_SIZE}, evt_timing(event_timing),
     block_cnt(array_size / (TBSIZE * elts_per_lane))
 {
-
   // The array size must be divisible by TBSIZE for kernel launches
   if (ARRAY_SIZE % TBSIZE != 0)
   {
@@ -34,6 +81,15 @@ HIPStream<T>::HIPStream(const unsigned int ARRAY_SIZE, const bool event_timing,
     ss << "Array size must be a multiple of " << TBSIZE;
     throw std::runtime_error(ss.str());
   }
+
+#ifdef __HIP_PLATFORM_NVCC__
+  dot_block_cnt = 256;
+#else
+  dot_block_cnt = block_cnt;
+#endif
+
+  std::cerr << "dot block count " << dot_block_cnt << std::endl;
+  std::cerr << "block count " << block_cnt << std::endl;
 
   // Set device
   int count;
@@ -49,7 +105,10 @@ HIPStream<T>::HIPStream(const unsigned int ARRAY_SIZE, const bool event_timing,
   std::cout << "Driver: " << getDeviceDriver(device_index) << std::endl;
 
   // Allocate the host array for partial sums for dot kernels
-  hipHostMalloc(&sums, sizeof(T) * block_cnt, hipHostMallocNonCoherent);
+  // TODO would like to use hipHostMallocNonCoherent here, but it appears to
+  // be broken with hipExtLaunchKernelGGL(). The data never becomes coherent
+  // with the system, even if we device sync or wait on a system scope event
+  hipHostMalloc(&sums, sizeof(T) * dot_block_cnt, hipHostMallocCoherent);
 
   // Check buffers fit on the device
   hipDeviceProp_t props;
@@ -75,8 +134,8 @@ HIPStream<T>::HIPStream(const unsigned int ARRAY_SIZE, const bool event_timing,
 template <class T>
 HIPStream<T>::~HIPStream()
 {
-  hipFree(sums);
-
+  hipHostFree(sums);
+  check_error();
   hipFree(d_a);
   check_error();
   hipFree(d_b);
@@ -112,6 +171,8 @@ void HIPStream<T>::init_arrays(T initA, T initB, T initC)
 template <class T>
 void HIPStream<T>::read_arrays(std::vector<T>& a, std::vector<T>& b, std::vector<T>& c)
 {
+  hipDeviceSynchronize();
+  check_error();
   // Copy device memory to host
   hipMemcpy(a.data(), d_a, a.size()*sizeof(T), hipMemcpyDeviceToHost);
   check_error();
@@ -130,7 +191,7 @@ __global__ void read_kernel(const T * __restrict a, T * __restrict c)
   for (auto i = 0u; i != elts_per_lane; ++i) {
     local_temp += a[gidx + i];
   }
-  if (local_temp == 126789.)
+  if (local_temp == -126789.)
       c[gidx] += local_temp;
 }
 
@@ -140,9 +201,8 @@ float HIPStream<T>::read()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipExtLaunchKernelGGL(read_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                        0, nullptr, start_ev, stop_ev, 0, d_a, d_c);
-    check_error();
+    hipLaunchKernelWithEvents(read_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_a, d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -150,11 +210,8 @@ float HIPStream<T>::read()
   }
   else
   {
-    hipExtLaunchKernelGGL(read_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                        0, nullptr, 0, stop_ev, 0, d_a, d_c);
-    check_error();
-    hipEventSynchronize(stop_ev);
-    check_error();
+    hipLaunchKernelSynchronous(read_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, false, d_a, d_c);
   }
   return kernel_time;
 }
@@ -165,7 +222,7 @@ __global__ void write_kernel(T * __restrict c)
 {
   const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
   for (auto i = 0u; i != elts_per_lane; ++i) {
-    c[gidx + i] = 0.;
+    c[gidx + i] = startC;
   }
 }
 
@@ -175,9 +232,8 @@ float HIPStream<T>::write()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipExtLaunchKernelGGL(write_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                       0, nullptr, start_ev, stop_ev, 0, d_c);
-    check_error();
+    hipLaunchKernelWithEvents(write_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -185,11 +241,8 @@ float HIPStream<T>::write()
   }
   else
   {
-    hipExtLaunchKernelGGL(write_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                       0, nullptr, 0, stop_ev, 0, d_c);
-    check_error();
-    hipEventSynchronize(stop_ev);
-    check_error();
+    hipLaunchKernelSynchronous(write_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, false, d_c);
   }
   return kernel_time;
 }
@@ -208,9 +261,8 @@ float HIPStream<T>::copy()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipExtLaunchKernelGGL(copy_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                       0, nullptr, start_ev, stop_ev, 0, d_a, d_c);
-    check_error();
+    hipLaunchKernelWithEvents(copy_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_a, d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -218,11 +270,8 @@ float HIPStream<T>::copy()
   }
   else
   {
-    hipExtLaunchKernelGGL(copy_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                       0, nullptr, 0, stop_ev, 0, d_a, d_c);
-    check_error();
-    hipEventSynchronize(stop_ev);
-    check_error();
+    hipLaunchKernelSynchronous(copy_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, false, d_a, d_c);
   }
   return kernel_time;
 }
@@ -242,9 +291,8 @@ float HIPStream<T>::mul()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipExtLaunchKernelGGL(mul_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                       0, nullptr, start_ev, stop_ev, 0, d_b, d_c);
-    check_error();
+    hipLaunchKernelWithEvents(mul_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_b, d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -252,11 +300,8 @@ float HIPStream<T>::mul()
   }
   else
   {
-    hipExtLaunchKernelGGL(mul_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                       0, nullptr, 0, stop_ev, 0, d_b, d_c);
-    check_error();
-    hipEventSynchronize(stop_ev);
-    check_error();
+    hipLaunchKernelSynchronous(mul_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, false, d_b, d_c);
   }
   return kernel_time;
 }
@@ -278,9 +323,9 @@ float HIPStream<T>::add()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipExtLaunchKernelGGL(add_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                       0, nullptr, start_ev, stop_ev, 0, d_a, d_b, d_c);
-    check_error();
+    hipLaunchKernelWithEvents(add_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_a, d_b,
+                            d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -288,11 +333,8 @@ float HIPStream<T>::add()
   }
   else
   {
-    hipExtLaunchKernelGGL(add_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                       0, nullptr, 0, stop_ev, 0, d_a, d_b, d_c);
-    check_error();
-    hipEventSynchronize(stop_ev);
-    check_error();
+    hipLaunchKernelSynchronous(add_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, false, d_a, d_b, d_c);
   }
   return kernel_time;
 }
@@ -315,9 +357,9 @@ float HIPStream<T>::triad()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipExtLaunchKernelGGL(triad_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                       0, nullptr, start_ev, stop_ev, 0, d_a, d_b, d_c);
-    check_error();
+    hipLaunchKernelWithEvents(triad_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_a, d_b,
+                            d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -325,11 +367,8 @@ float HIPStream<T>::triad()
   }
   else
   {
-    hipExtLaunchKernelGGL(triad_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                       0, nullptr, 0, stop_ev, 0, d_a, d_b, d_c);
-    check_error();
-    hipEventSynchronize(stop_ev);
-    check_error();
+    hipLaunchKernelSynchronous(triad_kernel<elts_per_lane, T>, dim3(block_cnt),
+                            dim3(TBSIZE), nullptr, false, d_a, d_b, d_c);
   }
   return kernel_time;
 }
@@ -337,21 +376,26 @@ float HIPStream<T>::triad()
 template <unsigned int elts_per_lane, class T>
 __launch_bounds__(TBSIZE)
 __global__ void dot_kernel(const T * __restrict a, const T * __restrict b,
-                           T * __restrict sum)
+                           T * __restrict sum, const unsigned int total_blocks)
 {
-  const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
-
-  T tmp{0.0};
-  for (auto i = 0u; i != elts_per_lane; ++i) tmp += a[gidx + i] * b[gidx + i];
-
-  const auto local_i = threadIdx.x;
-
   __shared__ T tb_sum[TBSIZE];
+  const auto local_i = threadIdx.x;
+  T tmp{0.0};
+
+  for (unsigned int vblock = blockIdx.x; vblock < total_blocks; vblock += gridDim.x)
+  {
+    const auto gidx = (blockDim.x * vblock + threadIdx.x) * elts_per_lane;
+    for (auto i = 0u; i != elts_per_lane; ++i)
+    {
+      tmp += a[gidx + i] * b[gidx + i];
+    }
+  }
+
   tb_sum[local_i] = tmp;
 
   #pragma unroll
   for (auto offset = TBSIZE / 2; offset > 0; offset /= 2) {
-    if (warpSize < offset) __syncthreads();
+    __syncthreads();
     if (local_i >= offset) continue;
 
     tb_sum[local_i] += tb_sum[local_i + offset];
@@ -365,14 +409,12 @@ __global__ void dot_kernel(const T * __restrict a, const T * __restrict b,
 template <class T>
 T HIPStream<T>::dot()
 {
-  hipExtLaunchKernelGGL(dot_kernel<elts_per_lane, T>, dim3(block_cnt), dim3(TBSIZE),
-                     0, nullptr, 0, stop_ev, 0, d_a, d_b, sums);
-  check_error();
-  hipEventSynchronize(stop_ev);
-  check_error();
+  hipLaunchKernelSynchronous(dot_kernel<elts_per_lane, T>, dim3(dot_block_cnt),
+                             dim3(TBSIZE), nullptr, true,
+                             d_a, d_b, sums, block_cnt);
 
   T sum = 0.0;
-  for (int i = 0; i < block_cnt; i++)
+  for (int i = 0; i < dot_block_cnt; i++)
     sum += sums[i];
 
   return sum;
