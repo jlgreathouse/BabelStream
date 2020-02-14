@@ -23,15 +23,18 @@ class HCStream : public Stream<T>
   static constexpr unsigned int elts_per_lane{sizeof_best_size / sizeof(T)};
 protected:
   // Size of arrays
-  unsigned int array_size;
-  unsigned int lane_cnt;
+  const unsigned int array_size;
+  const unsigned int lane_cnt;
+
+  const bool evt_timing;
+
   // Device side pointers to arrays
   hc::array<T,1> d_a;
   hc::array<T,1> d_b;
   hc::array<T,1> d_c;
 
 public:
-  HCStream(const unsigned int, const int);
+  HCStream(const unsigned int, const bool, const int);
   ~HCStream();
 
   virtual float read() override;

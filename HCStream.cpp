@@ -52,11 +52,13 @@ void listDevices(void)
 
 
 template <class T>
-HCStream<T>::HCStream(const unsigned int ARRAY_SIZE, const int device_index):
+HCStream<T>::HCStream(const unsigned int ARRAY_SIZE, const bool event_timing,
+  const int device_index):
   array_size(ARRAY_SIZE),
   d_a(ARRAY_SIZE),
   d_b(ARRAY_SIZE),
   d_c(ARRAY_SIZE),
+  evt_timing(event_timing),
   lane_cnt(ARRAY_SIZE / elts_per_lane)
 {
 
@@ -127,6 +129,7 @@ void HCStream<T>::read_arrays(std::vector<T>& a, std::vector<T>& b, std::vector<
 template <class T>
 float HCStream<T>::read()
 {
+  float evt_time = 0.;
 
   hc::array_view<T,1> view_a = this->d_a;
   hc::array_view<T,1> view_c = this->d_c;
@@ -145,18 +148,21 @@ float HCStream<T>::read()
                                     view_c[index] = temp;
                                 });
     future_kernel.wait();
+    if (evt_timing)
+      evt_time = (future_kernel.get_end_tick() - future_kernel.get_begin_tick()) / 1000000.;
   }
   catch(std::exception& e){
     std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::read " << e.what() << std::endl;
     throw;
   }
 
-  return 0.;
+  return evt_time;
 }
 
 template <class T>
 float HCStream<T>::write()
 {
+  float evt_time = 0.;
 
   hc::array_view<T,1> view_c = this->d_c;
 
@@ -171,18 +177,22 @@ float HCStream<T>::write()
                                   }
                                 });
     future_kernel.wait();
+    if (evt_timing)
+      evt_time = (future_kernel.get_end_tick() - future_kernel.get_begin_tick()) / 1000000.;
   }
+
   catch(std::exception& e){
     std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::write " << e.what() << std::endl;
     throw;
   }
 
-  return 0.;
+  return evt_time;
 }
 
 template <class T>
 float HCStream<T>::copy()
 {
+  float evt_time = 0.;
 
   hc::array_view<T,1> view_a = this->d_a;
   hc::array_view<T,1> view_c = this->d_c;
@@ -202,18 +212,21 @@ float HCStream<T>::copy()
                                   }
 								});
     future_kernel.wait();
+    if (evt_timing)
+      evt_time = (future_kernel.get_end_tick() - future_kernel.get_begin_tick()) / 1000000.;
   }
   catch(std::exception& e){
     std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::copy " << e.what() << std::endl;
     throw;
   }
 
-  return 0.;
+  return evt_time;
 }
 
 template <class T>
 float HCStream<T>::mul()
 {
+  float evt_time = 0.;
 
   const T scalar = startScalar;
   hc::array_view<T,1> view_b = this->d_b;
@@ -234,19 +247,21 @@ float HCStream<T>::mul()
                                   }
 								});
     future_kernel.wait();
+    if (evt_timing)
+      evt_time = (future_kernel.get_end_tick() - future_kernel.get_begin_tick()) / 1000000.;
   }
   catch(std::exception& e){
     std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::mul " << e.what() << std::endl;
     throw;
   }
 
-  return 0.;
+  return evt_time;
 }
 
 template <class T>
 float HCStream<T>::add()
 {
-
+  float evt_time = 0.;
 
   hc::array_view<T,1> view_a(this->d_a);
   hc::array_view<T,1> view_b(this->d_b);
@@ -267,18 +282,21 @@ float HCStream<T>::add()
                                   }
 								});
     future_kernel.wait();
+    if (evt_timing)
+      evt_time = (future_kernel.get_end_tick() - future_kernel.get_begin_tick()) / 1000000.;
   }
   catch(std::exception& e){
     std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::add " << e.what() << std::endl;
     throw;
   }
 
-  return 0.;
+  return evt_time;
 }
 
 template <class T>
 float HCStream<T>::triad()
 {
+  float evt_time = 0.;
 
   const T scalar = startScalar;
   hc::array_view<T,1> view_a(this->d_a);
@@ -300,13 +318,15 @@ float HCStream<T>::triad()
                                   }
 								});
     future_kernel.wait();
+    if (evt_timing)
+      evt_time = (future_kernel.get_end_tick() - future_kernel.get_begin_tick()) / 1000000.;
   }
   catch(std::exception& e){
     std::cerr << __FILE__ << ":" << __LINE__ << "\t HCStream<T>::triad " << e.what() << std::endl;
     throw;
   }
 
-  return 0.;
+  return evt_time;
 }
 
 template <class T>

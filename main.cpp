@@ -97,7 +97,7 @@ static double calculate_time_s(const bool evt_timing,
         const std::chrono::high_resolution_clock::time_point t2,
         const float kernel_time)
 {
-#if defined(HIP) || defined(OCL) || defined(CUDA)
+#if defined(HIP) || defined(OCL) || defined(CUDA) || defined(HC)
   if (!event_timing)
     return std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
   else
@@ -164,7 +164,7 @@ void run()
 
 #elif defined(HC)
   // Use the HC implementation
-  stream = new HCStream<T>(ARRAY_SIZE, deviceIndex);
+  stream = new HCStream<T>(ARRAY_SIZE, event_timing, deviceIndex);
 
 #elif defined(OCL)
   // Use the OpenCL implementation
@@ -579,7 +579,7 @@ void parseArguments(int argc, char *argv[])
     {
       triad_only = true;
     }
-#if defined(HIP) || defined(CUDA) || defined(OCL)
+#if defined(HIP) || defined(CUDA) || defined(OCL) || defined(HC)
     else if (!std::string("--event-timing").compare(argv[i]) ||
              !std::string("-e").compare(argv[i]))
     {
@@ -607,7 +607,7 @@ void parseArguments(int argc, char *argv[])
       std::cout << "  -n  --numtimes   NUM     Run the test NUM times (NUM >= 2)" << std::endl;
       std::cout << "      --float              Use floats (rather than doubles)" << std::endl;
       std::cout << "      --triad-only         Only run triad" << std::endl;
-#if defined(HIP) || defined(CUDA) || defined(OCL)
+#if defined(HIP) || defined(CUDA) || defined(OCL) || defined(HC)
       std::cout << "  -e  --event-timing       Use event timing instead of host-side timing" << std::endl;
 #endif
       std::cout << "      --csv                Output as csv table" << std::endl;
