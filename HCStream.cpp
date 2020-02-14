@@ -56,7 +56,8 @@ HCStream<T>::HCStream(const unsigned int ARRAY_SIZE, const int device_index):
   array_size(ARRAY_SIZE),
   d_a(ARRAY_SIZE),
   d_b(ARRAY_SIZE),
-  d_c(ARRAY_SIZE)
+  d_c(ARRAY_SIZE),
+  lane_cnt(ARRAY_SIZE / elts_per_lane)
 {
 
   // The array size must be divisible by VIRTUALTILESIZE for kernel launches
@@ -131,11 +132,17 @@ float HCStream<T>::read()
   hc::array_view<T,1> view_c = this->d_c;
 
   try{
-    hc::completion_future future_kernel = hc::parallel_for_each(hc::extent<1>(array_size)
-                                , [=](hc::index<1> index) [[hc]] {
-                                  T local_temp = view_a[index];
-                                  if (local_temp == 126789.)
-                                    view_c[index] = local_temp;
+    hc::extent<1>total_threads(lane_cnt);
+    hc::tiled_extent<1>workgroups(total_threads, 1024);
+    hc::completion_future future_kernel = hc::parallel_for_each(workgroups
+                                , [=](hc::index<1> in_index) [[hc]] {
+                                  const hc::index<1> index = in_index * elts_per_lane;
+                                  T temp = 0.;
+                                  for (auto i = 0u; i != elts_per_lane; ++i) {
+                                    temp += view_a[index + i];
+                                  }
+                                  if (temp == 126789.)
+                                    view_c[index] = temp;
                                 });
     future_kernel.wait();
   }
@@ -154,9 +161,14 @@ float HCStream<T>::write()
   hc::array_view<T,1> view_c = this->d_c;
 
   try{
-    hc::completion_future future_kernel = hc::parallel_for_each(hc::extent<1>(array_size)
-                                , [=](hc::index<1> index) [[hc]] {
-                                  view_c[index] = 0.;
+    hc::extent<1>total_threads(lane_cnt);
+    hc::tiled_extent<1>workgroups(total_threads, 1024);
+    hc::completion_future future_kernel = hc::parallel_for_each(workgroups
+                                , [=](hc::index<1> in_index) [[hc]] {
+                                  const hc::index<1> index = in_index * elts_per_lane;
+                                  for (auto i = 0u; i != elts_per_lane; ++i) {
+                                    view_c[index+i] = 0.;
+                                  }
                                 });
     future_kernel.wait();
   }
@@ -176,9 +188,18 @@ float HCStream<T>::copy()
   hc::array_view<T,1> view_c = this->d_c;
 
   try{
-    hc::completion_future future_kernel = hc::parallel_for_each(hc::extent<1>(array_size)
-                                , [=](hc::index<1> index) [[hc]] {
-                                  view_c[index] = view_a[index];
+    hc::extent<1>total_threads(lane_cnt);
+    hc::tiled_extent<1>workgroups(total_threads, 1024);
+    hc::completion_future future_kernel = hc::parallel_for_each(workgroups
+                                , [=](hc::index<1> in_index) [[hc]] {
+                                  const hc::index<1> index = in_index * elts_per_lane;
+                                  T temp[elts_per_lane];
+                                  for (auto i = 0u; i != elts_per_lane; ++i) {
+                                    temp[i] = view_a[index+i];
+                                  }
+                                  for (auto i = 0u; i != elts_per_lane; ++i) {
+                                    view_c[index+i] = temp[i];
+                                  }
 								});
     future_kernel.wait();
   }
@@ -199,9 +220,18 @@ float HCStream<T>::mul()
   hc::array_view<T,1> view_c = this->d_c;
 
   try{
-    hc::completion_future future_kernel = hc::parallel_for_each(hc::extent<1>(array_size)
-                                , [=](hc::index<1> i) [[hc]] {
-                                  view_b[i] = scalar*view_c[i];
+    hc::extent<1>total_threads(lane_cnt);
+    hc::tiled_extent<1>workgroups(total_threads, 1024);
+    hc::completion_future future_kernel = hc::parallel_for_each(workgroups
+                                , [=](hc::index<1> in_index) [[hc]] {
+                                  const hc::index<1> index = in_index * elts_per_lane;
+                                  T temp[elts_per_lane];
+                                  for (auto i = 0u; i != elts_per_lane; ++i) {
+                                    temp[i] = scalar*view_c[index+i];
+                                  }
+                                  for (auto i = 0u; i != elts_per_lane; ++i) {
+                                    view_b[index+i] = temp[i];
+                                  }
 								});
     future_kernel.wait();
   }
@@ -223,9 +253,18 @@ float HCStream<T>::add()
   hc::array_view<T,1> view_c(this->d_c);
 
   try{
-    hc::completion_future future_kernel = hc::parallel_for_each(hc::extent<1>(array_size)
-                                , [=](hc::index<1> i) [[hc]] {
-                                  view_c[i] = view_a[i]+view_b[i];
+    hc::extent<1>total_threads(lane_cnt);
+    hc::tiled_extent<1>workgroups(total_threads, 1024);
+    hc::completion_future future_kernel = hc::parallel_for_each(workgroups
+                                , [=](hc::index<1> in_index) [[hc]] {
+                                  const hc::index<1> index = in_index * elts_per_lane;
+                                  T temp[elts_per_lane];
+                                  for (auto i = 0u; i != elts_per_lane; ++i) {
+                                    temp[i] = view_a[index+i]+view_b[index+i];
+                                  }
+                                  for (auto i = 0u; i != elts_per_lane; ++i) {
+                                    view_c[index+i] = temp[i];
+                                  }
 								});
     future_kernel.wait();
   }
@@ -247,9 +286,18 @@ float HCStream<T>::triad()
   hc::array_view<T,1> view_c(this->d_c);
 
   try{
-    hc::completion_future future_kernel = hc::parallel_for_each(hc::extent<1>(array_size)
-                                , [=](hc::index<1> i) [[hc]] {
-                                  view_a[i] = view_b[i] + scalar*view_c[i];
+    hc::extent<1>total_threads(lane_cnt);
+    hc::tiled_extent<1>workgroups(total_threads, 1024);
+    hc::completion_future future_kernel = hc::parallel_for_each(workgroups
+                                , [=](hc::index<1> in_index) [[hc]] {
+                                  const hc::index<1> index = in_index * elts_per_lane;
+                                  T temp[elts_per_lane];
+                                  for (auto i = 0u; i != elts_per_lane; ++i) {
+                                    temp[i] = view_b[index+i] + scalar*view_c[index+i];
+                                  }
+                                  for (auto i = 0u; i != elts_per_lane; ++i) {
+                                    view_a[index+i] = temp[i];
+                                  }
 								});
     future_kernel.wait();
   }

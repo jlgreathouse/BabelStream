@@ -192,7 +192,7 @@ __global__ void read_kernel(const T * __restrict a, T * __restrict c)
     local_temp += a[gidx + i];
   }
   if (local_temp == -126789.)
-      c[gidx] += local_temp;
+      c[gidx] = local_temp;
 }
 
 template <class T>
