@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <sstream>
@@ -25,8 +26,10 @@ class HIPStream : public Stream<T>
 #ifdef __HIP_PLATFORM_NVCC__
   static constexpr unsigned int elts_per_lane{1};
 #else
-  static constexpr unsigned int sizeof_best_size{sizeof(unsigned int) * 4};
-  static constexpr unsigned int elts_per_lane{sizeof_best_size / sizeof(T)};
+  static constexpr unsigned int best_size{sizeof(unsigned int) * 1};
+  static constexpr unsigned int elts_per_lane{
+    (best_size < sizeof(T)) ? 1 : (best_size / sizeof(T))};
+  static constexpr unsigned int chunks_per_block{4};
 #endif
   protected:
     // Size of arrays
