@@ -25,6 +25,7 @@ class HIPStream : public Stream<T>
 {
 #ifdef __HIP_PLATFORM_NVCC__
   static constexpr unsigned int elts_per_lane{1};
+  static constexpr unsigned int chunks_per_block{8};
 #else
   static constexpr unsigned int best_size{sizeof(unsigned int) * 1};
   static constexpr unsigned int elts_per_lane{
@@ -35,7 +36,6 @@ class HIPStream : public Stream<T>
     // Size of arrays
     const unsigned int array_size;
     const unsigned int block_cnt;
-    unsigned int dot_block_cnt;
     const bool evt_timing;
     hipEvent_t start_ev;
     hipEvent_t stop_ev;

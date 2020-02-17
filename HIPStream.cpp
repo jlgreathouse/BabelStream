@@ -84,13 +84,6 @@ HIPStream<T>::HIPStream(const unsigned int ARRAY_SIZE, const bool event_timing,
     throw std::runtime_error(ss.str());
   }
 
-#ifdef __HIP_PLATFORM_NVCC__
-  dot_block_cnt = 256;
-#else
-  dot_block_cnt = block_cnt;
-#endif
-
-  std::cerr << "dot block count " << dot_block_cnt << std::endl;
   std::cerr << "block count " << block_cnt << std::endl;
 
   // Set device
@@ -110,7 +103,7 @@ HIPStream<T>::HIPStream(const unsigned int ARRAY_SIZE, const bool event_timing,
   // TODO would like to use hipHostMallocNonCoherent here, but it appears to
   // be broken with hipExtLaunchKernelGGL(). The data never becomes coherent
   // with the system, even if we device sync or wait on a system scope event
-  hipHostMalloc(&sums, sizeof(T) * dot_block_cnt, hipHostMallocCoherent);
+  hipHostMalloc(&sums, sizeof(T) * block_cnt, hipHostMallocCoherent);
 
   // Check buffers fit on the device
   hipDeviceProp_t props;
@@ -436,7 +429,7 @@ float HIPStream<T>::triad()
   return kernel_time;
 }
 
-template<unsigned int block_sz, unsigned int n = 1024>
+template<unsigned int n = TBSIZE>
 struct Reducer {
   template<typename I>
   __device__
@@ -445,18 +438,27 @@ struct Reducer {
   {
     if (n == 1) return;
 
+#if defined(__HIP_PLATFORM_NVCC__)
+    constexpr unsigned int warpSize = 32;
+#endif
     constexpr bool is_same_warp{n <= warpSize * 2};
-    if (block_sz >= n)
+    if (static_cast<int>(threadIdx.x) < n / 2)
     {
-      if (threadIdx.x < n / 2)
-      {
-        it[threadIdx.x] += it[threadIdx.x + n / 2];
-      }
-      is_same_warp ? __threadfence_block() : __syncthreads();
+      it[threadIdx.x] += it[threadIdx.x + n / 2];
     }
+    is_same_warp ? __threadfence_block() : __syncthreads();
 
-    Reducer<block_sz, n / 2>::reduce(it);
+    Reducer<n / 2>::reduce(it);
   }
+};
+
+template<>
+struct Reducer<1u> {
+  template<typename I>
+  __device__
+  static
+  void reduce(I) noexcept
+  {}
 };
 
 template <unsigned int elts_per_lane, unsigned int chunks_per_block, typename T>
@@ -482,13 +484,12 @@ void dot_kernel(const T * __restrict a, const T * __restrict b,
 
   __syncthreads();
 
-  Reducer<TBSIZE>::reduce(tb_sum);
+  Reducer<>::reduce(tb_sum);
 
   if (threadIdx.x)
   {
     return;
   }
-
   sum[blockIdx.x] = tb_sum[0];
 }
 
@@ -496,11 +497,11 @@ template <class T>
 T HIPStream<T>::dot()
 {
   hipLaunchKernelSynchronous(dot_kernel<elts_per_lane, chunks_per_block, T>,
-                             dim3(dot_block_cnt), dim3(TBSIZE), nullptr, true,
+                             dim3(block_cnt), dim3(TBSIZE), nullptr, true,
                              d_a, d_b, sums);
 
   T sum{0};
-  for (auto i = 0u; i != dot_block_cnt; ++i)
+  for (auto i = 0u; i != block_cnt; ++i)
   {
     sum += sums[i];
   }
