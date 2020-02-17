@@ -8,6 +8,8 @@
 #include "HIPStream.h"
 #include "hip/hip_runtime.h"
 
+#include <cfloat>
+
 #define TBSIZE 1024
 
 void check_error(void)
@@ -72,7 +74,7 @@ template <class T>
 HIPStream<T>::HIPStream(const unsigned int ARRAY_SIZE, const bool event_timing,
   const int device_index)
   : array_size{ARRAY_SIZE}, evt_timing(event_timing),
-    block_cnt(array_size / (TBSIZE * elts_per_lane))
+    block_cnt(array_size / (TBSIZE * elts_per_lane * chunks_per_block))
 {
   // The array size must be divisible by TBSIZE for kernel launches
   if (ARRAY_SIZE % TBSIZE != 0)
@@ -182,17 +184,28 @@ void HIPStream<T>::read_arrays(std::vector<T>& a, std::vector<T>& b, std::vector
   check_error();
 }
 
-template <unsigned int elts_per_lane, typename T>
+template <unsigned int elts_per_lane, unsigned int chunks_per_block, typename T>
 __launch_bounds__(TBSIZE)
-__global__ void read_kernel(const T * __restrict a, T * __restrict c)
+__global__
+void read_kernel(const T * __restrict a, T * __restrict c)
 {
+  const auto dx = gridDim.x * blockDim.x * elts_per_lane;
   const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
-  T local_temp = 0.;
-  for (auto i = 0u; i != elts_per_lane; ++i) {
-    local_temp += a[gidx + i];
+
+  T tmp{0};
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+      tmp += a[gidx + i * dx + j];
+    }
   }
-  if (local_temp == -126789.)
-      c[gidx] = local_temp;
+
+  // Prevent side-effect free loop from being optimised away.
+  if (tmp == FLT_MIN)
+  {
+    c[gidx] = tmp;
+  }
 }
 
 template <class T>
@@ -201,8 +214,9 @@ float HIPStream<T>::read()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipLaunchKernelWithEvents(read_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_a, d_c);
+    hipLaunchKernelWithEvents(read_kernel<elts_per_lane, chunks_per_block, T>,
+                              dim3(block_cnt), dim3(TBSIZE), nullptr, start_ev,
+                              stop_ev, d_a, d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -210,19 +224,27 @@ float HIPStream<T>::read()
   }
   else
   {
-    hipLaunchKernelSynchronous(read_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, false, d_a, d_c);
+    hipLaunchKernelSynchronous(read_kernel<elts_per_lane, chunks_per_block, T>,
+                               dim3(block_cnt), dim3(TBSIZE), nullptr, false,
+                               d_a, d_c);
   }
   return kernel_time;
 }
 
-template <unsigned int elts_per_lane, typename T>
+template <unsigned int elts_per_lane, unsigned int chunks_per_block, typename T>
 __launch_bounds__(TBSIZE)
-__global__ void write_kernel(T * __restrict c)
+__global__
+void write_kernel(T * __restrict c)
 {
+  const auto dx = gridDim.x * blockDim.x * elts_per_lane;
   const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
-  for (auto i = 0u; i != elts_per_lane; ++i) {
-    c[gidx + i] = startC;
+
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+      c[gidx + i * dx + j] = startC;
+    }
   }
 }
 
@@ -232,8 +254,9 @@ float HIPStream<T>::write()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipLaunchKernelWithEvents(write_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_c);
+    hipLaunchKernelWithEvents(write_kernel<elts_per_lane, chunks_per_block, T>,
+                              dim3(block_cnt), dim3(TBSIZE), nullptr, start_ev,
+                              stop_ev, d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -241,18 +264,28 @@ float HIPStream<T>::write()
   }
   else
   {
-    hipLaunchKernelSynchronous(write_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, false, d_c);
+    hipLaunchKernelSynchronous(write_kernel<elts_per_lane, chunks_per_block, T>,
+                               dim3(block_cnt), dim3(TBSIZE), nullptr, false,
+                               d_c);
   }
   return kernel_time;
 }
 
-template <unsigned int elts_per_lane, typename T>
+template <unsigned int elts_per_lane, unsigned int chunks_per_block, typename T>
 __launch_bounds__(TBSIZE)
-__global__ void copy_kernel(const T * __restrict a, T * __restrict c)
+__global__
+void copy_kernel(const T * __restrict a, T * __restrict c)
 {
+  const auto dx = gridDim.x * blockDim.x * elts_per_lane;
   const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
-  for (auto i = 0u; i != elts_per_lane; ++i) c[gidx + i] = a[gidx + i];
+
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+      c[gidx + i * dx + j] = a[gidx + i * dx + j];
+    }
+  }
 }
 
 template <class T>
@@ -261,8 +294,9 @@ float HIPStream<T>::copy()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipLaunchKernelWithEvents(copy_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_a, d_c);
+    hipLaunchKernelWithEvents(copy_kernel<elts_per_lane, chunks_per_block, T>,
+                              dim3(block_cnt), dim3(TBSIZE), nullptr, start_ev,
+                              stop_ev, d_a, d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -270,19 +304,29 @@ float HIPStream<T>::copy()
   }
   else
   {
-    hipLaunchKernelSynchronous(copy_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, false, d_a, d_c);
+    hipLaunchKernelSynchronous(copy_kernel<elts_per_lane, chunks_per_block, T>,
+                               dim3(block_cnt), dim3(TBSIZE), nullptr, false,
+                               d_a, d_c);
   }
   return kernel_time;
 }
 
-template <unsigned int elts_per_lane, typename T>
+template <unsigned int elts_per_lane, unsigned int chunks_per_block, typename T>
 __launch_bounds__(TBSIZE)
-__global__ void mul_kernel(T * __restrict b, const T * __restrict c)
+__global__
+void mul_kernel(T * __restrict b, const T * __restrict c)
 {
   const T scalar = startScalar;
+  const auto dx = gridDim.x * blockDim.x * elts_per_lane;
   const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
-  for (auto i = 0u; i != elts_per_lane; ++i) b[gidx + i] = scalar * c[gidx + i];
+
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+      b[gidx + i * dx + j] = scalar * c[gidx + i * dx + j];
+    }
+  }
 }
 
 template <class T>
@@ -291,8 +335,9 @@ float HIPStream<T>::mul()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipLaunchKernelWithEvents(mul_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_b, d_c);
+    hipLaunchKernelWithEvents(mul_kernel<elts_per_lane, chunks_per_block, T>,
+                              dim3(block_cnt), dim3(TBSIZE), nullptr, start_ev,
+                              stop_ev, d_b, d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -300,20 +345,28 @@ float HIPStream<T>::mul()
   }
   else
   {
-    hipLaunchKernelSynchronous(mul_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, false, d_b, d_c);
+    hipLaunchKernelSynchronous(mul_kernel<elts_per_lane, chunks_per_block, T>,
+                               dim3(block_cnt), dim3(TBSIZE), nullptr, false,
+                               d_b, d_c);
   }
   return kernel_time;
 }
 
-template <unsigned int elts_per_lane, typename T>
+template <unsigned int elts_per_lane, unsigned int chunks_per_block, typename T>
 __launch_bounds__(TBSIZE)
-__global__ void add_kernel(const T * __restrict a, const T * __restrict b,
-                           T * __restrict c)
+__global__
+void add_kernel(const T * __restrict a, const T * __restrict b,
+                T * __restrict c)
 {
+  const auto dx = gridDim.x * blockDim.x * elts_per_lane;
   const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
-  for (auto i = 0u; i != elts_per_lane; ++i) {
-    c[gidx + i] = a[gidx + i] + b[gidx + i];
+
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+      c[gidx + i * dx + j] = a[gidx + i * dx + j] + b[gidx + i * dx + j];
+    }
   }
 }
 
@@ -323,9 +376,9 @@ float HIPStream<T>::add()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipLaunchKernelWithEvents(add_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_a, d_b,
-                            d_c);
+    hipLaunchKernelWithEvents(add_kernel<elts_per_lane, chunks_per_block, T>,
+                              dim3(block_cnt), dim3(TBSIZE), nullptr, start_ev,
+                              stop_ev, d_a, d_b, d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -333,21 +386,30 @@ float HIPStream<T>::add()
   }
   else
   {
-    hipLaunchKernelSynchronous(add_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, false, d_a, d_b, d_c);
+    hipLaunchKernelSynchronous(add_kernel<elts_per_lane, chunks_per_block, T>,
+                               dim3(block_cnt), dim3(TBSIZE), nullptr, false,
+                               d_a, d_b, d_c);
   }
   return kernel_time;
 }
 
-template <unsigned int elts_per_lane, typename T>
+template <unsigned int elts_per_lane, unsigned int chunks_per_block, typename T>
 __launch_bounds__(TBSIZE)
-__global__ void triad_kernel(T * __restrict a, const T * __restrict b,
-                             const T * __restrict c)
+__global__
+void triad_kernel(T * __restrict a, const T * __restrict b,
+                  const T * __restrict c)
 {
   const T scalar = startScalar;
+  const auto dx = gridDim.x * blockDim.x * elts_per_lane;
   const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
-  for (auto i = 0u; i != elts_per_lane; ++i) {
-    a[gidx + i] = b[gidx + i] + scalar * c[gidx + i];
+
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+      a[gidx + i * dx + j] =
+        b[gidx + i * dx + j] + scalar * c[gidx + i * dx + j];
+    }
   }
 }
 
@@ -357,9 +419,9 @@ float HIPStream<T>::triad()
   float kernel_time = 0.;
   if (evt_timing)
   {
-    hipLaunchKernelWithEvents(triad_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, start_ev, stop_ev, d_a, d_b,
-                            d_c);
+    hipLaunchKernelWithEvents(triad_kernel<elts_per_lane, chunks_per_block, T>,
+                              dim3(block_cnt), dim3(TBSIZE), nullptr, start_ev,
+                              stop_ev, d_a, d_b, d_c);
     hipEventSynchronize(stop_ev);
     check_error();
     hipEventElapsedTime(&kernel_time, start_ev, stop_ev);
@@ -367,41 +429,65 @@ float HIPStream<T>::triad()
   }
   else
   {
-    hipLaunchKernelSynchronous(triad_kernel<elts_per_lane, T>, dim3(block_cnt),
-                            dim3(TBSIZE), nullptr, false, d_a, d_b, d_c);
+    hipLaunchKernelSynchronous(triad_kernel<elts_per_lane, chunks_per_block, T>,
+                               dim3(block_cnt), dim3(TBSIZE), nullptr, false,
+                               d_a, d_b, d_c);
   }
   return kernel_time;
 }
 
-template <unsigned int elts_per_lane, class T>
-__launch_bounds__(TBSIZE)
-__global__ void dot_kernel(const T * __restrict a, const T * __restrict b,
-                           T * __restrict sum, const unsigned int total_blocks)
-{
-  __shared__ T tb_sum[TBSIZE];
-  const auto local_i = threadIdx.x;
-  T tmp{0.0};
-
-  for (unsigned int vblock = blockIdx.x; vblock < total_blocks; vblock += gridDim.x)
+template<unsigned int block_sz, unsigned int n = 1024>
+struct Reducer {
+  template<typename I>
+  __device__
+  static
+  void reduce(I it) noexcept
   {
-    const auto gidx = (blockDim.x * vblock + threadIdx.x) * elts_per_lane;
-    for (auto i = 0u; i != elts_per_lane; ++i)
+    if (n == 1) return;
+
+    constexpr bool is_same_warp{n <= warpSize * 2};
+    if (block_sz >= n)
     {
-      tmp += a[gidx + i] * b[gidx + i];
+      if (threadIdx.x < n / 2)
+      {
+        it[threadIdx.x] += it[threadIdx.x + n / 2];
+      }
+      is_same_warp ? __threadfence_block() : __syncthreads();
+    }
+
+    Reducer<block_sz, n / 2>::reduce(it);
+  }
+};
+
+template <unsigned int elts_per_lane, unsigned int chunks_per_block, typename T>
+__launch_bounds__(TBSIZE)
+__global__
+void dot_kernel(const T * __restrict a, const T * __restrict b,
+                T * __restrict sum)
+{
+  const auto dx = gridDim.x * blockDim.x * elts_per_lane;
+  const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
+
+  T tmp{0};
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+      tmp += a[gidx + i * dx + j] * b[gidx + i * dx + j];
     }
   }
 
-  tb_sum[local_i] = tmp;
+  __shared__ T tb_sum[TBSIZE];
+  tb_sum[threadIdx.x] = tmp;
 
-  #pragma unroll
-  for (auto offset = TBSIZE / 2; offset > 0; offset /= 2) {
-    __syncthreads();
-    if (local_i >= offset) continue;
+  __syncthreads();
 
-    tb_sum[local_i] += tb_sum[local_i + offset];
+  Reducer<TBSIZE>::reduce(tb_sum);
+
+  if (threadIdx.x)
+  {
+    return;
   }
-
-  if (local_i) return;
 
   sum[blockIdx.x] = tb_sum[0];
 }
@@ -409,13 +495,15 @@ __global__ void dot_kernel(const T * __restrict a, const T * __restrict b,
 template <class T>
 T HIPStream<T>::dot()
 {
-  hipLaunchKernelSynchronous(dot_kernel<elts_per_lane, T>, dim3(dot_block_cnt),
-                             dim3(TBSIZE), nullptr, true,
-                             d_a, d_b, sums, block_cnt);
+  hipLaunchKernelSynchronous(dot_kernel<elts_per_lane, chunks_per_block, T>,
+                             dim3(dot_block_cnt), dim3(TBSIZE), nullptr, true,
+                             d_a, d_b, sums);
 
-  T sum = 0.0;
-  for (int i = 0; i < dot_block_cnt; i++)
+  T sum{0};
+  for (auto i = 0u; i != dot_block_cnt; ++i)
+  {
     sum += sums[i];
+  }
 
   return sum;
 }
