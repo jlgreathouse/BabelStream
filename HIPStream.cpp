@@ -445,10 +445,10 @@ struct Reducer {
   {
     if (n == 1) return;
 
-    constexpr auto is_same_warp{n <= warpSize * 2};
+    constexpr bool is_same_warp{n <= warpSize * 2};
     if (block_sz >= n)
     {
-      if (is_same_warp || threadIdx.x < n / 2)
+      if (threadIdx.x < n / 2)
       {
         it[threadIdx.x] += it[threadIdx.x + n / 2];
       }
