@@ -202,7 +202,10 @@ void read_kernel(const T * __restrict a, T * __restrict c)
   }
 
   // Prevent side-effect free loop from being optimised away.
-  if (tmp == FLT_MIN) c[gidx] = tmp;
+  if (tmp == FLT_MIN)
+  {
+    c[gidx] = tmp;
+  }
 }
 
 template <class T>
@@ -481,7 +484,10 @@ void dot_kernel(const T * __restrict a, const T * __restrict b,
 
   Reducer<TBSIZE>::reduce(tb_sum);
 
-  if (threadIdx.x) return;
+  if (threadIdx.x)
+  {
+    return;
+  }
 
   sum[blockIdx.x] = tb_sum[0];
 }
@@ -494,7 +500,10 @@ T HIPStream<T>::dot()
                              d_a, d_b, sums);
 
   T sum{0};
-  for (auto i = 0u; i != dot_block_cnt; ++i) sum += sums[i];
+  for (auto i = 0u; i != dot_block_cnt; ++i)
+  {
+    sum += sums[i];
+  }
 
   return sum;
 }
