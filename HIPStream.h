@@ -27,10 +27,10 @@ class HIPStream : public Stream<T>
   static constexpr unsigned int elts_per_lane{1};
   static constexpr unsigned int chunks_per_block{8};
 #else
-  static constexpr unsigned int best_size{sizeof(unsigned int) * 1};
+  static constexpr unsigned int best_size{sizeof(unsigned int) * 4};
   static constexpr unsigned int elts_per_lane{
     (best_size < sizeof(T)) ? 1 : (best_size / sizeof(T))};
-  static constexpr unsigned int chunks_per_block{4};
+  static constexpr unsigned int chunks_per_block{1};
 #endif
   protected:
     // Size of arrays
