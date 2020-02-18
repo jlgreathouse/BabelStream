@@ -28,6 +28,7 @@ class OCLStream : public Stream<T>
     // Size of arrays
     const unsigned int array_size;
     unsigned int elts_per_lane;
+    unsigned int chunks_per_wg;
     const bool evt_timing;
 
     // Host array for partial sums for dot kernel

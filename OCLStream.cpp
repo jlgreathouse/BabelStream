@@ -32,21 +32,29 @@ std::string kernels{R"CLC(
     global const TYPE * restrict a,
     global TYPE * restrict c)
   {
+    const size_t dx = get_num_groups(0) * get_local_size(0) * ELTS_PER_LANE;
     const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
+
     TYPE local_temp = 0.;
-    for (int i = 0; i != ELTS_PER_LANE; ++i) {
-        local_temp += a[gidx + i];
+    for (int i = 0; i != CHUNKS_PER_WG; ++i) {
+      for (int j = 0; j != ELTS_PER_LANE; ++j) {
+        local_temp += a[gidx + i * dx + j];
+      }
     }
     if (local_temp == 126789.)
-        c[gidx] = local_temp;
+      c[gidx] = local_temp;
   }
 
   kernel void write(
     global TYPE * restrict c)
   {
+    const size_t dx = get_num_groups(0) * get_local_size(0) * ELTS_PER_LANE;
     const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
-    for (int i = 0; i != ELTS_PER_LANE; ++i) {
-        c[gidx+i] = 0.;
+
+    for (int i = 0; i != CHUNKS_PER_WG; ++i) {
+      for (int j = 0; j != ELTS_PER_LANE; ++j) {
+        c[gidx + i * dx + j] = STARTC;
+      }
     }
   }
 
@@ -54,9 +62,13 @@ std::string kernels{R"CLC(
     global const TYPE * restrict a,
     global TYPE * restrict c)
   {
+    const size_t dx = get_num_groups(0) * get_local_size(0) * ELTS_PER_LANE;
     const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
-    for (int i = 0; i != ELTS_PER_LANE; ++i) {
-        c[gidx+i] = a[gidx+i];
+
+    for (int i = 0; i != CHUNKS_PER_WG; ++i) {
+      for (int j = 0; j != ELTS_PER_LANE; ++j) {
+        c[gidx + i * dx + j] = a[gidx + i * dx + j];
+      }
     }
   }
 
@@ -64,9 +76,13 @@ std::string kernels{R"CLC(
     global TYPE * restrict b,
     global const TYPE * restrict c)
   {
+    const size_t dx = get_num_groups(0) * get_local_size(0) * ELTS_PER_LANE;
     const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
-    for (int i = 0; i != ELTS_PER_LANE; ++i) {
-        b[gidx+i] = scalar * c[gidx+i];
+
+    for (int i = 0; i != CHUNKS_PER_WG; ++i) {
+      for (int j = 0; j != ELTS_PER_LANE; ++j) {
+        b[gidx + i * dx + j] = scalar * c[gidx + i * dx + j];
+      }
     }
   }
 
@@ -75,9 +91,13 @@ std::string kernels{R"CLC(
     global const TYPE * restrict b,
     global TYPE * restrict c)
   {
+    const size_t dx = get_num_groups(0) * get_local_size(0) * ELTS_PER_LANE;
     const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
-    for (int i = 0; i != ELTS_PER_LANE; ++i) {
-        c[gidx+i] = a[gidx+i] + b[gidx+i];
+
+    for (int i = 0; i != CHUNKS_PER_WG; ++i) {
+      for (int j = 0; j != ELTS_PER_LANE; ++j) {
+        c[gidx + i * dx + j] = a[gidx + i * dx + j] + b[gidx + i * dx + j];
+      }
     }
   }
 
@@ -86,9 +106,13 @@ std::string kernels{R"CLC(
     global const TYPE * restrict b,
     global const TYPE * restrict c)
   {
+    const size_t dx = get_num_groups(0) * get_local_size(0) * ELTS_PER_LANE;
     const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
-    for (int i = 0; i != ELTS_PER_LANE; ++i) {
-        a[gidx+i] = b[gidx+i] + scalar * c[gidx+i];
+
+    for (int i = 0; i != CHUNKS_PER_WG; ++i) {
+      for (int j = 0; j != ELTS_PER_LANE; ++j) {
+        a[gidx + i * dx + j] = b[gidx + i * dx + j] + scalar * c[gidx + i * dx + j];
+      }
     }
   }
 
@@ -99,16 +123,18 @@ std::string kernels{R"CLC(
     local TYPE * restrict wg_sum,
     uint array_size)
   {
-    size_t i = get_global_id(0) * ELTS_PER_LANE;
+    const size_t dx = get_num_groups(0) * get_local_size(0) * ELTS_PER_LANE;
+    const size_t gidx = get_global_id(0) * ELTS_PER_LANE;
     const size_t local_i = get_local_id(0);
-    TYPE tmp = 0.;
 
-    for (; i < array_size; i+=(get_global_size(0) * ELTS_PER_LANE)) {
-      for (int j = 0; j < ELTS_PER_LANE; j++)
-        tmp += a[i+j] * b[i+j];
+    TYPE temp = 0.;
+    for (int i = 0; i != CHUNKS_PER_WG; ++i) {
+      for (int j = 0; j != ELTS_PER_LANE; ++j) {
+        temp += a[gidx + i * dx + j] * b[gidx + i * dx + j];
+      }
     }
 
-    wg_sum[local_i] = tmp;
+    wg_sum[local_i] = temp;
 
     for (int offset = get_local_size(0) / 2; offset > 0; offset /= 2)
     {
@@ -118,7 +144,10 @@ std::string kernels{R"CLC(
       wg_sum[local_i] += wg_sum[local_i + offset];
     }
 
-    if (local_i) return;
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    if (local_i)
+      return;
 
     sum[get_group_id(0)] = wg_sum[0];
   }
@@ -154,29 +183,31 @@ OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const bool event_timing,
     throw std::runtime_error("Invalid device index");
   device = devices[device_index];
 
-  // Determine sensible dot kernel NDRange configuration
-  if (device.getInfo<CL_DEVICE_TYPE>() & CL_DEVICE_TYPE_CPU)
+  unsigned int size_of_good_load = sizeof(unsigned int);
+  if (getDeviceVendor(device_index) == 0x1002) // AMD
   {
-    dot_num_groups = device.getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
-    dot_wgsize     = device.getInfo<CL_DEVICE_NATIVE_VECTOR_WIDTH_DOUBLE>() * 2;
+      size_of_good_load *= 4;
+      chunks_per_wg = 1;
   }
   else
   {
-    dot_num_groups = device.getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>() * 4;
-    dot_wgsize     = device.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
+      chunks_per_wg = 8;
   }
+  elts_per_lane = size_of_good_load / sizeof(T);
+  if (elts_per_lane == 0)
+    elts_per_lane++;
+
+  // Determine sensible dot kernel NDRange configuration
+  if (device.getInfo<CL_DEVICE_TYPE>() & CL_DEVICE_TYPE_CPU)
+    dot_wgsize     = device.getInfo<CL_DEVICE_NATIVE_VECTOR_WIDTH_DOUBLE>() * 2;
+  else
+    dot_wgsize     = device.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
+  dot_num_groups = array_size/(elts_per_lane*chunks_per_wg*dot_wgsize);
 
   // Print out device information
   std::cout << "Using OpenCL device " << getDeviceName(device_index) << std::endl;
   std::cout << "Driver: " << getDeviceDriver(device_index) << std::endl;
   std::cout << "Reduction kernel config: " << dot_num_groups << " groups of size " << dot_wgsize << std::endl;
-
-  unsigned int size_of_good_load = sizeof(unsigned int);
-  if (getDeviceVendor(device_index) == 0x1002) // AMD
-      size_of_good_load *= 4;;
-  elts_per_lane = size_of_good_load / sizeof(T);
-  if (elts_per_lane == 0)
-    elts_per_lane++;
 
   context = cl::Context(device);
   if (evt_timing)
@@ -189,6 +220,8 @@ OCLStream<T>::OCLStream(const unsigned int ARRAY_SIZE, const bool event_timing,
   std::ostringstream args;
   args << "-DstartScalar=" << startScalar << " ";
   args << "-DELTS_PER_LANE=" << elts_per_lane << " ";
+  args << "-DCHUNKS_PER_WG=" << chunks_per_wg << " ";
+  args << "-DSTARTC=" << startC << " ";
   if (sizeof(T) == sizeof(double))
   {
     args << "-DTYPE=double";
@@ -258,7 +291,7 @@ float OCLStream<T>::read()
 {
   float kernel_time = 0.;
   cl::Event evt = (*read_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/(elts_per_lane*chunks_per_wg))),
     d_a, d_c
   );
   evt.wait();
@@ -276,7 +309,7 @@ float OCLStream<T>::write()
 {
   float kernel_time = 0.;
   cl::Event evt = (*write_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/(elts_per_lane*chunks_per_wg))),
     d_c
   );
   evt.wait();
@@ -294,7 +327,7 @@ float OCLStream<T>::copy()
 {
   float kernel_time = 0.;
   cl::Event evt = (*copy_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/(elts_per_lane*chunks_per_wg))),
     d_a, d_c
   );
   evt.wait();
@@ -312,7 +345,7 @@ float OCLStream<T>::mul()
 {
   float kernel_time = 0.;
   cl::Event evt = (*mul_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/(elts_per_lane*chunks_per_wg))),
     d_b, d_c
   );
   evt.wait();
@@ -330,7 +363,7 @@ float OCLStream<T>::add()
 {
   float kernel_time = 0.;
   cl::Event evt = (*add_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/(elts_per_lane*chunks_per_wg))),
     d_a, d_b, d_c
   );
   evt.wait();
@@ -348,7 +381,7 @@ float OCLStream<T>::triad()
 {
   float kernel_time = 0.;
   cl::Event evt = (*triad_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(array_size/elts_per_lane)),
+    cl::EnqueueArgs(queue, cl::NDRange(array_size/(elts_per_lane*chunks_per_wg))),
     d_a, d_b, d_c
   );
   evt.wait();
@@ -365,7 +398,7 @@ template <class T>
 T OCLStream<T>::dot()
 {
   cl::Event evt = (*dot_kernel)(
-    cl::EnqueueArgs(queue, cl::NDRange(dot_num_groups*dot_wgsize), cl::NDRange(dot_wgsize)),
+    cl::EnqueueArgs(queue, cl::NDRange(dot_num_groups * dot_wgsize), cl::NDRange(dot_wgsize)),
     d_a, d_b, d_sum, cl::Local(sizeof(T) * dot_wgsize), array_size
   );
   T *local_sums = static_cast<T*>(queue.enqueueMapBuffer(d_sum, CL_BLOCKING,
