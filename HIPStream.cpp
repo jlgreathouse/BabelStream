@@ -354,11 +354,30 @@ void add_kernel(const T * __restrict a, const T * __restrict b,
   const auto dx = gridDim.x * blockDim.x * elts_per_lane;
   const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
 
+  T temp_a[chunks_per_block * elts_per_lane];
+  T temp_b[chunks_per_block * elts_per_lane];
+
   for (auto i = 0u; i != chunks_per_block; ++i)
   {
     for (auto j = 0u; j != elts_per_lane; ++j)
     {
-      c[gidx + i * dx + j] = a[gidx + i * dx + j] + b[gidx + i * dx + j];
+        temp_a[i*elts_per_lane + j] = a[gidx + i * dx + j];
+    }
+  }
+  __threadfence();
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+        temp_b[i*elts_per_lane + j] = b[gidx + i * dx + j];
+    }
+  }
+  __threadfence();
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+      c[gidx + i * dx + j] = temp_a[i*elts_per_lane + j] + temp_b[i*elts_per_lane + j];
     }
   }
 }
@@ -396,12 +415,30 @@ void triad_kernel(T * __restrict a, const T * __restrict b,
   const auto dx = gridDim.x * blockDim.x * elts_per_lane;
   const auto gidx = (blockDim.x * blockIdx.x + threadIdx.x) * elts_per_lane;
 
+  T temp_b[chunks_per_block * elts_per_lane];
+  T temp_c[chunks_per_block * elts_per_lane];
+
   for (auto i = 0u; i != chunks_per_block; ++i)
   {
     for (auto j = 0u; j != elts_per_lane; ++j)
     {
-      a[gidx + i * dx + j] =
-        b[gidx + i * dx + j] + scalar * c[gidx + i * dx + j];
+        temp_b[i*elts_per_lane + j] = b[gidx + i * dx + j];
+    }
+  }
+  __threadfence();
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+        temp_c[i*elts_per_lane + j] = c[gidx + i * dx + j];
+    }
+  }
+  __threadfence();
+  for (auto i = 0u; i != chunks_per_block; ++i)
+  {
+    for (auto j = 0u; j != elts_per_lane; ++j)
+    {
+      a[gidx + i * dx + j] = temp_b[i*elts_per_lane + j] + scalar * temp_c[i*elts_per_lane + j];
     }
   }
 }
