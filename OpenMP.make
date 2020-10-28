@@ -14,7 +14,7 @@ ifndef TARGET
 define target_help
 Set TARGET to change device (defaulting to CPU).
 Available targets are:
-  CPU NVIDIA
+  CPU NVIDIA AMD
 
 endef
 $(info $(target_help))
