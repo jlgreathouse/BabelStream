@@ -23,7 +23,7 @@ endif
 
 ifeq ("$(TARGET)","AMD")
 # to override AOMP_GPU: $ export AOMP_GPU=gfx906
-INSTALLED_GPU  = $(shell /opt/rocm/bin/rocm_agent_enumerator | grep gfx9 | grep -v gfx000)
+INSTALLED_GPU  = $(shell /opt/rocm/bin/rocm_agent_enumerator | grep gfx9 | grep -v gfx000 | head -n 1)
 AOMP_GPU ?= $(INSTALLED_GPU)
 endif
 
