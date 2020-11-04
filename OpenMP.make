@@ -14,11 +14,17 @@ ifndef TARGET
 define target_help
 Set TARGET to change device (defaulting to CPU).
 Available targets are:
-  CPU NVIDIA
+  CPU NVIDIA AMD
 
 endef
 $(info $(target_help))
 TARGET=CPU
+endif
+
+ifeq ("$(TARGET)","AMD")
+# to override AOMP_GPU: $ export AOMP_GPU=gfx906
+INSTALLED_GPU  = $(shell /opt/rocm/bin/rocm_agent_enumerator | grep gfx9 | grep -v gfx000 | head -n 1)
+AOMP_GPU ?= $(INSTALLED_GPU)
 endif
 
 COMPILER_GNU = g++
@@ -51,6 +57,10 @@ OMP_NEC_CPU = -fopenmp
 # OpenMP flags for NVIDIA
 OMP_CRAY_NVIDIA  = -DOMP_TARGET_GPU
 OMP_CLANG_NVIDIA = -DOMP_TARGET_GPU -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda
+
+OMP_CLANG_AMD = -DOMP_TARGET_GPU -O3 -target x86_64-pc-linux-gnu -fopenmp \
+                -fopenmp-targets=amdgcn-amd-amdhsa \
+                -Xopenmp-target=amdgcn-amd-amdhsa -march=$(AOMP_GPU)
 
 ifndef OMP_$(COMPILER)_$(TARGET)
 $(error Targeting $(TARGET) with $(COMPILER) not supported)
